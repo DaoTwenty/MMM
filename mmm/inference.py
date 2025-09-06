@@ -335,10 +335,10 @@ def _adapt_prompt_for_bar_infilling(
 
     # Context
     context_token_start_idx = np.nonzero(
-        times >= bars_ticks[start_bar_idx - num_context_bars]
+        times >= bars_ticks[max(start_bar_idx - num_context_bars,0)]
     )[0][0]
     context_token_end_idx = np.nonzero(
-        times >= bars_ticks[end_bar_idx + num_context_bars]
+        times >= bars_ticks[min(end_bar_idx + num_context_bars, len(bars_ticks)-1)]
     )[0][0]
 
     conditioning_dict[track_idx] = (context_token_start_idx, context_token_end_idx)

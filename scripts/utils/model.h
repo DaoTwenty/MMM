@@ -1,28 +1,55 @@
 #pragma once
 
-#include <string>
-
 #include <onnxruntime_cxx_api.h>
+#include <random>
+#include <algorithm>
+#include <numeric>
+#include <cmath>
+#include <stdexcept>
+#include <iostream>
+#include <torch/torch.h>
+#include <torch/script.h>
 
 namespace mmm {
 
-class Model {
+class IModel {
 public:
+virtual ~IModel() = default;
+virtual std::vector<float> forward(const std::vector<int64_t>& input_ids) = 0;
+};
 
-Model(const std::string& modelFilepath);
-~Model();
+class CausalLM : IModel {
+public:
+    CausalLM(const std::string& model_path, int vocab_size, int pad_token_id);
 
-void initialize();
-void forward();
+    // Forward pass (batch size = 1 for simplicity)
+    std::vector<float> forward(const std::vector<int64_t>& input_ids) override;
 
 private:
-  std::shared_ptr<Ort::Env> m_Env;
-  std::shared_ptr<Ort::Session> m_Session;
-  char* m_InputName;
-  std::vector<int64_t> m_InputDims;
-  char* m_OutputName;
-  std::vector<int64_t> m_OutputDims;
+    Ort::Env env;
+    Ort::SessionOptions session_options;
+    Ort::Session session;
+    Ort::MemoryInfo memory_info;
 
-}
+    int vocab_size;
+    int pad_token_id;
+
+};
+
+class CausalLMTorch : IModel {
+public:
+    CausalLMTorch(const std::string& model_path, int vocab_size, int pad_token_id);
+
+    // Forward pass (batch size = 1 for simplicity)
+    std::vector<float> forward(const std::vector<int64_t>& input_ids) override;
+
+private:
+    torch::jit::script::Module model;
+
+    int vocab_size;
+    int pad_token_id;
+
+};
+
 
 }
