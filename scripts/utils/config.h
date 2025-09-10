@@ -1,6 +1,12 @@
+#pragma once
+
 #include <optional>
 #include <string>
 #include <iostream>
+
+namespace mmm {
+
+namespace sampling {
 
 struct GenerationConfig {
     bool do_sample = true;
@@ -21,6 +27,10 @@ struct GenerationConfig {
                   << "  repetition_penalty=" << repetition_penalty << "\n"
                   << "  temperature=" << temperature << "\n"
                   << "  top_k=" << top_k << "\n"
-                  << "  top_p=" << top_p << "\n"
+                  << "  top_p=" << top_p << "\n";
     }
 };
+
+}
+
+}

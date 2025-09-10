@@ -2,4 +2,5 @@ rm -rf build/
 mkdir build && cd build
 cmake ..
 make -j
-./causallm
+cd ../
+build/causallm config.json

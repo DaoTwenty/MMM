@@ -1,10 +1,20 @@
-#include "model.h"
 #include <iostream>
+#include <cstdlib>
 #include <chrono>
 #include <vector>
+#include <random>
 #include <numeric>
 #include <cmath>
 #include <string>
+#include <nlohmann/json.hpp>
+
+#include "model.h"            
+#include "engine.h" 
+#include "sampler.h" 
+#include "logitsprocessor.h" 
+#include "logitswarper.h"
+#include "profiler.h"       
+#include "config.h"  
 
 // Helper to compute mean/std
 struct Stats {
@@ -47,6 +57,7 @@ struct BenchmarkModel {
     std::string name;
     enum class Type {ONNX, TORCHSCRIPT} type;
     std::string path;
+    bool cached;
     mmm::CausalLM* onnx_model = nullptr;
     mmm::CausalLMTorch* torch_model = nullptr;
     std::vector<double> times;
@@ -54,62 +65,116 @@ struct BenchmarkModel {
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::cout << "Usage: " << argv[0] << " <model_path1> [<model_path2> ...] [--torch <torchscript_path>]\n";
+        std::cout << "Usage: " << argv[0] << " <config.json>\n";
         return 1;
     }
 
-    int num_passes = 100;
-    std::vector<int64_t> input_ids = {1, 123, 456, 123, 432, 23, 4534, 4}; // example tokens
+    // Load JSON config
+    std::ifstream f(argv[1]);
+    if (!f.is_open()) {
+        std::cerr << "Error opening config file: " << argv[1] << "\n";
+        return 1;
+    }
+    nlohmann::json j;
+    f >> j;
 
+    // Extract parameters
+    int num_passes  = j.value("num_passes", 5);
+    int seq_len     = j.value("seq_len", 32);
+    int num_gen     = j.value("num_gen", 10);
+    int vocab_size  = j.value("vocab_size", 16000);
+
+    // Prepare random input ids
+    std::vector<int64_t> input_ids(seq_len);
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int64_t> dist(0, vocab_size - 1);
+    for (auto &id : input_ids) id = dist(gen);
+
+    // Parse and load models
     std::vector<BenchmarkModel> models;
+    for (auto& jm : j["models"]) {
+        BenchmarkModel m;
+        m.name   = jm.value("name", "unnamed");
+        m.path   = jm.value("path", "");
+        m.cached = jm.value("cache", false);
+        std::string type = jm.value("type", "ONNX");
 
-    // Parse arguments: any path is an ONNX model until optional --torch
-    bool torch_next = false;
-    for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
-        if (arg == "--torch") {
-            torch_next = true;
-            continue;
-        }
-        if (torch_next) {
-            models.push_back({ "TORCHSCRIPT", BenchmarkModel::Type::TORCHSCRIPT, arg });
-            torch_next = false;
-        } else {
-            models.push_back({ "ONNX", BenchmarkModel::Type::ONNX, arg });
-        }
-    }
+        m.type = (type == "ONNX") ? BenchmarkModel::Type::ONNX
+                                  : BenchmarkModel::Type::TORCHSCRIPT;
 
-    // Load models
-    for (auto& m : models) {
         if (m.type == BenchmarkModel::Type::ONNX) {
-            m.onnx_model = new mmm::CausalLM(m.path, 16000, 0);
+            m.onnx_model = m.cached ? new mmm::CausalLMCached(m.path, vocab_size, 0)
+                                    : new mmm::CausalLM(m.path, vocab_size, 0);
         } else {
-            m.torch_model = new mmm::CausalLMTorch(m.path, 16000, 0);
+            m.torch_model = m.cached ? new mmm::CausalLMTorchCached(m.path, vocab_size, 0)
+                                     : new mmm::CausalLMTorch(m.path, vocab_size, 0);
         }
+        models.push_back(std::move(m));
     }
+
+    int n_models   = models.size();
+    int tot_passes = n_models * num_passes;
+    int cum_pass   = 0;
+
+    std::cout << "Benchmarking " << n_models
+              << " models :: " << num_passes
+              << " passes :: " << seq_len 
+              << " initial sequence length :: " << num_gen
+              << " generated tokens\n";
+
+    // Prepare SamplingEngine (model-agnostic)
+    mmm::sampling::GenerationConfig config;
+    config.max_new_tokens = num_gen;
+
+    mmm::sampling::Sampler sampler;
+
+    // Prepare LogitsProcessorList
+    mmm::sampling::LogitsProcessorList processors;
+    // Example: you could push processors here (temperature, top-k, etc.)
+    // processors.add(std::make_shared<TemperatureLogitsProcessor>(config.temperature));
+    mmm::sampling::LogitsWarperList warpers;
+
+    mmm::utils::Profiler profiler;
+
+    mmm::sampling::SamplingEngine engine(
+        config, 
+        processors, 
+        warpers, 
+        sampler, 
+        &profiler
+    );
 
     // Benchmark loop
     for (int pass = 0; pass < num_passes; ++pass) {
-        print_progress(pass + 1, num_passes);
         for (auto& m : models) {
-            auto t_start = std::chrono::high_resolution_clock::now();
+            cum_pass++;
+            print_progress(cum_pass + 1, tot_passes);
 
-            if (m.type == BenchmarkModel::Type::ONNX) {
-                auto logits = m.onnx_model->forward(input_ids);
-            } else {
-                auto logits = m.torch_model->forward(input_ids);
+            mmm::IModel* model = (m.type == BenchmarkModel::Type::ONNX)
+                        ? static_cast<mmm::IModel*>(m.onnx_model)
+                        : static_cast<mmm::IModel*>(m.torch_model);
+
+            if (model->is_cached()) {
+                model->reset_cache();
             }
 
-            auto t_end = std::chrono::high_resolution_clock::now();
-            double elapsed_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
-            m.times.push_back(elapsed_ms);
+            profiler.reset();
+
+            // Use sampling engine for generation
+            std::vector<int64_t> generated =
+                engine.generate(input_ids, model);
+
+            m.times.push_back(profiler.total_time());
+
         }
     }
 
     std::cout << "\n=== Benchmark Summary over " << num_passes << " passes ===\n";
     for (auto& m : models) {
         Stats s = compute_stats(m.times);
-        std::cout << m.path << " :: mean = " << s.mean
+        std::cout << m.name << " (" << m.path << ")"
+                  << " :: mean = " << s.mean
                   << " ms, min = " << s.min
                   << " ms, max = " << s.max
                   << " ms, stddev = " << s.stddev << " ms\n";
@@ -131,4 +196,6 @@ int main(int argc, char** argv) {
         delete m.onnx_model;
         delete m.torch_model;
     }
+
+    return 0;
 }

@@ -16,16 +16,19 @@ class IModel {
 public:
 virtual ~IModel() = default;
 virtual std::vector<float> forward(const std::vector<int64_t>& input_ids) = 0;
+virtual bool is_cached() {return false;}
+virtual void reset_cache() {}
 };
 
-class CausalLM : IModel {
+class CausalLM : public IModel {
 public:
-    CausalLM(const std::string& model_path, int vocab_size, int pad_token_id);
+
+    CausalLM(const std::string& model_path, int vocab_size, int pad_token_id, bool coreML = false);
 
     // Forward pass (batch size = 1 for simplicity)
     std::vector<float> forward(const std::vector<int64_t>& input_ids) override;
 
-private:
+protected:
     Ort::Env env;
     Ort::SessionOptions session_options;
     Ort::Session session;
@@ -36,19 +39,60 @@ private:
 
 };
 
-class CausalLMTorch : IModel {
+class CausalLMCached : public CausalLM{
+public:
+
+    CausalLMCached(const std::string& model_path, int vocab_size, int pad_token_id, bool coreML = false);
+
+    std::vector<float> forward(const std::vector<int64_t>& input_ids) override;
+
+    void reset_cache() override;
+
+    bool is_cached() override {return true;}
+
+private:
+
+    std::vector<const char*> main_input_names;
+    std::vector<const char*> past_input_names;
+    std::vector<const char*> past_output_names;
+    const char* logits_output_name = nullptr;
+
+    std::vector<Ort::Value> past_key_values;
+
+    bool has_input(const std::string& name) const {
+        return std::any_of(main_input_names.begin(), main_input_names.end(),
+                           [&](const char* n) { return name == n; });
+    }
+
+};
+
+class CausalLMTorch : public IModel {
 public:
     CausalLMTorch(const std::string& model_path, int vocab_size, int pad_token_id);
 
     // Forward pass (batch size = 1 for simplicity)
     std::vector<float> forward(const std::vector<int64_t>& input_ids) override;
 
-private:
+protected:
     torch::jit::script::Module model;
 
     int vocab_size;
     int pad_token_id;
 
+};
+
+class CausalLMTorchCached : public CausalLMTorch {
+public:
+    CausalLMTorchCached(const std::string& model_path, int vocab_size, int pad_token_id);
+
+    std::vector<float> forward(const std::vector<int64_t>& input_ids) override;
+
+    void reset_cache() override;
+
+    bool is_cached() override {return true;}
+
+private:
+    std::vector<c10::IValue> past_key_values;
 };
 
 

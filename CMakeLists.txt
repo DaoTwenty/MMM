@@ -16,11 +16,14 @@ link_directories("${ONNXRUNTIME_ROOTDIR}/build/MacOS/RelWithDebInfo")
 set(Torch_DIR "/Users/paultriana/libtorch/share/cmake/Torch")
 
 find_package(Torch REQUIRED)
+find_package(nlohmann_json 3.2.0 REQUIRED)
 
 # ---- Source files ----
 set(SOURCES
     scripts/utils/test.cpp
     scripts/utils/model.cpp
+    scripts/utils/sampler.cpp
+    scripts/utils/engine.cpp
 )
 
 set(HEADERS
@@ -34,6 +37,7 @@ add_executable(causallm ${SOURCES} ${HEADERS})
 target_link_libraries(causallm
     onnxruntime
     "${TORCH_LIBRARIES}"
+    nlohmann_json::nlohmann_json
 )
 
 set_property(TARGET causallm PROPERTY CXX_STANDARD 17)

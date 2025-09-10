@@ -1,0 +1,13 @@
+{
+    "num_passes": 100,
+    "seq_len": 16,
+    "num_gen": 16,
+    "models": [
+      { "name": "Torchscript Default", "type": "TORCHSCRIPT", "path": "../models/GPT2/gpt2_default_attn_float32/traced_model_no_cache.ts" },
+      { "name": "Torchscript Cached", "type": "TORCHSCRIPT", "path": "../models/GPT2/gpt2_default_attn_float32/traced_model_cache.ts" , "cache":true},
+      { "name": "ONNX Default", "type": "ONNX", "path": "../models/GPT2/gpt2_default_attn_float32/optimum_no_cache_optimize_0/model.onnx"},
+      { "name": "ONNX O1", "type": "ONNX", "path": "../models/GPT2/gpt2_default_attn_float32/optimum_no_cache_optimize_1/model.onnx"},
+      { "name": "ONNX O2", "type": "ONNX", "path": "../models/GPT2/gpt2_default_attn_float32/optimum_no_cache_optimize_2/model.onnx"},
+      { "name": "ONNX O3", "type": "ONNX", "path": "../models/GPT2/gpt2_default_attn_float32/optimum_no_cache_optimize_3/model.onnx"}
+    ]
+  }
