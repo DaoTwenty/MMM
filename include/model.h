@@ -23,7 +23,7 @@ virtual void reset_cache() {}
 class CausalLM : public IModel {
 public:
 
-    CausalLM(const std::string& model_path, int vocab_size, int pad_token_id, bool coreML = false);
+    CausalLM(const std::string& model_path, int vocab_size, bool coreML = false);
 
     // Forward pass (batch size = 1 for simplicity)
     std::vector<float> forward(const std::vector<int64_t>& input_ids) override;
@@ -35,14 +35,13 @@ protected:
     Ort::MemoryInfo memory_info;
 
     int vocab_size;
-    int pad_token_id;
 
 };
 
 class CausalLMCached : public CausalLM{
 public:
 
-    CausalLMCached(const std::string& model_path, int vocab_size, int pad_token_id, bool coreML = false);
+    CausalLMCached(const std::string& model_path, int vocab_size, bool coreML = false);
 
     std::vector<float> forward(const std::vector<int64_t>& input_ids) override;
 
@@ -68,7 +67,7 @@ private:
 
 class CausalLMTorch : public IModel {
 public:
-    CausalLMTorch(const std::string& model_path, int vocab_size, int pad_token_id);
+    CausalLMTorch(const std::string& model_path, int vocab_size);
 
     // Forward pass (batch size = 1 for simplicity)
     std::vector<float> forward(const std::vector<int64_t>& input_ids) override;
@@ -77,13 +76,12 @@ protected:
     torch::jit::script::Module model;
 
     int vocab_size;
-    int pad_token_id;
 
 };
 
 class CausalLMTorchCached : public CausalLMTorch {
 public:
-    CausalLMTorchCached(const std::string& model_path, int vocab_size, int pad_token_id);
+    CausalLMTorchCached(const std::string& model_path, int vocab_size);
 
     std::vector<float> forward(const std::vector<int64_t>& input_ids) override;
 

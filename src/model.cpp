@@ -5,29 +5,31 @@ namespace mmm {
 static Ort::SessionOptions make_options(bool useCoreML) {
     Ort::SessionOptions opts;
     //opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
-    opts.SetLogSeverityLevel(0);  // verbose
+    //opts.SetLogSeverityLevel(0);  // verbose
     opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_DISABLE_ALL);
     //opts.SetIntraOpNumThreads(std::thread::hardware_concurrency());
     opts.SetInterOpNumThreads(1);
     opts.SetExecutionMode(ExecutionMode::ORT_PARALLEL);
     std::unordered_map<std::string, std::string> provider_options;
     if (useCoreML) {
-        provider_options["ModelFormat"] = std::string("MLProgram");
+        provider_options["ModelFormat"] = "MLProgram";
+        provider_options["MLComputeUnits"] = "ALL";
+        provider_options["RequireStaticInputShapes"] = "0";
+        provider_options["EnableOnSubgraphs"] = "0";
         opts.AppendExecutionProvider("CoreML", provider_options);
     }
     return opts;
 }
 
-CausalLM::CausalLM(const std::string& model_path, int vocab_size, int pad_token_id, bool coreML)
+CausalLM::CausalLM(const std::string& model_path, int vocab_size, bool coreML)
     : env(ORT_LOGGING_LEVEL_WARNING, "CausalLM"),
       session_options(make_options(coreML)),
       session(env, model_path.c_str(), session_options),
       memory_info(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)),
-      vocab_size(vocab_size),
-      pad_token_id(pad_token_id) {}
+      vocab_size(vocab_size) {}
 
-CausalLMCached::CausalLMCached(const std::string& model_path, int vocab_size, int pad_token_id, bool coreML)
-    : CausalLM(model_path, vocab_size, pad_token_id, coreML) {
+CausalLMCached::CausalLMCached(const std::string& model_path, int vocab_size, bool coreML)
+    : CausalLM(model_path, vocab_size, coreML) {
         Ort::AllocatorWithDefaultOptions allocator;
 
         // Inspect inputs
@@ -67,14 +69,13 @@ CausalLMCached::CausalLMCached(const std::string& model_path, int vocab_size, in
                   << "and " << past_output_names.size() << " past outputs.\n";
 }
 
-CausalLMTorch::CausalLMTorch(const std::string& model_path, int vocab_size, int pad_token_id)
+CausalLMTorch::CausalLMTorch(const std::string& model_path, int vocab_size)
     : model(torch::jit::load(model_path)),  // initialize the reference here
-      vocab_size(vocab_size),
-      pad_token_id(pad_token_id) {
+      vocab_size(vocab_size) {
 }
 
-CausalLMTorchCached::CausalLMTorchCached(const std::string& model_path, int vocab_size, int pad_token_id)
-    : CausalLMTorch(model_path, vocab_size, pad_token_id) 
+CausalLMTorchCached::CausalLMTorchCached(const std::string& model_path, int vocab_size)
+    : CausalLMTorch(model_path, vocab_size) 
     {}
 
 void CausalLMCached::reset_cache() {

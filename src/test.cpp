@@ -16,6 +16,9 @@
 #include "profiler.h"       
 #include "config.h"  
 
+// LibTok
+#include "mmm.h"
+
 // Helper to compute mean/std
 struct Stats {
     double mean;
@@ -58,14 +61,15 @@ struct BenchmarkModel {
     enum class Type {ONNX, TORCHSCRIPT} type;
     std::string path;
     bool cached;
+    bool coreml;
     mmm::CausalLM* onnx_model = nullptr;
     mmm::CausalLMTorch* torch_model = nullptr;
     std::vector<double> times;
 };
 
 int main(int argc, char** argv) {
-    if (argc < 2) {
-        std::cout << "Usage: " << argv[0] << " <config.json>\n";
+    if (argc < 3 || argc > 4) {
+        std::cout << "Usage: " << argv[0] << " <config.json> <tokenizer.json> ( optional <file.mid> )\n";
         return 1;
     }
 
@@ -84,12 +88,33 @@ int main(int argc, char** argv) {
     int num_gen     = j.value("num_gen", 10);
     int vocab_size  = j.value("vocab_size", 16000);
 
-    // Prepare random input ids
-    std::vector<int64_t> input_ids(seq_len);
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<int64_t> dist(0, vocab_size - 1);
-    for (auto &id : input_ids) id = dist(gen);
+    std::vector<int64_t> input_ids;
+    std::string midi_file = "None/Random Input";
+    if (argc == 4) { 
+        std::cout << "Using MIDI file :: " << argv[3] << std::endl;
+        std::string midiStr = argv[3];
+        midi_file = midiStr;
+        std::string tokenizerStr = argv[2];
+        std::filesystem::path midiPath(midiStr);
+        std::filesystem::path tokenizerPath(tokenizerStr);
+        LibTok::MMM tokenizer = LibTok::MMM(tokenizerPath);
+        auto tokens = tokenizer.encode(midiPath);
+        LibTok::TokSequence tokSeq = std::get<LibTok::TokSequence>(tokens);
+        std::vector<std::string> tokenVec = tokSeq.tokens;
+        std::vector<int> token_ids = tokSeq.ids;
+        input_ids.reserve(token_ids.size());
+
+        for (int id : token_ids)
+            input_ids.push_back(static_cast<int64_t>(id));
+    } else {
+        std::cout << "Using random inputs :: sequence size " << seq_len << std::endl;
+        // Prepare random input ids
+        std::vector<int64_t> input_ids(seq_len);
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<int64_t> dist(0, vocab_size - 1);
+        for (auto &id : input_ids) id = dist(gen);
+    }
 
     // Parse and load models
     std::vector<BenchmarkModel> models;
@@ -98,28 +123,31 @@ int main(int argc, char** argv) {
         m.name   = jm.value("name", "unnamed");
         m.path   = jm.value("path", "");
         m.cached = jm.value("cache", false);
+        m.coreml = jm.value("coreml", false);
         std::string type = jm.value("type", "ONNX");
 
         m.type = (type == "ONNX") ? BenchmarkModel::Type::ONNX
                                   : BenchmarkModel::Type::TORCHSCRIPT;
 
         if (m.type == BenchmarkModel::Type::ONNX) {
-            m.onnx_model = m.cached ? new mmm::CausalLMCached(m.path, vocab_size, 0)
-                                    : new mmm::CausalLM(m.path, vocab_size, 0);
+            m.onnx_model = m.cached ? new mmm::CausalLMCached(m.path, vocab_size, m.coreml)
+                                    : new mmm::CausalLM(m.path, vocab_size, m.coreml);
         } else {
-            m.torch_model = m.cached ? new mmm::CausalLMTorchCached(m.path, vocab_size, 0)
-                                     : new mmm::CausalLMTorch(m.path, vocab_size, 0);
+            m.torch_model = m.cached ? new mmm::CausalLMTorchCached(m.path, vocab_size)
+                                     : new mmm::CausalLMTorch(m.path, vocab_size);
         }
         models.push_back(std::move(m));
     }
 
+    seq_len = input_ids.size();
     int n_models   = models.size();
     int tot_passes = n_models * num_passes;
     int cum_pass   = 0;
 
     std::cout << "Benchmarking " << n_models
               << " models :: " << num_passes
-              << " passes :: " << seq_len 
+              << " passes :: input data - " << midi_file 
+              << " :: " << seq_len
               << " initial sequence length :: " << num_gen
               << " generated tokens\n";
 
