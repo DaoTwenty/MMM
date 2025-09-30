@@ -1,0 +1,6 @@
+set(DEFAULT_LIBTORCH_ROOT "$ENV{HOME}/libs/libtorch")
+
+set(LIBTORCH_ROOTDIR ${DEFAULT_LIBTORCH_ROOT} CACHE PATH "Path to LibTorch installation")
+
+set(CMAKE_PREFIX_PATH ${LIBTORCH_ROOTDIR}")
+find_package(Torch REQUIRED)

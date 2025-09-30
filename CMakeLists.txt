@@ -15,27 +15,17 @@ FetchContent_Declare(LibTok SOURCE_DIR ${LIBTOK_ROOTDIR})
 FetchContent_MakeAvailable(LibTok)
 
 # ---- ONNX Runtime ----
-if (APPLE)
-    set(DEFAULT_ONNXRUNTIME_ROOT "$ENV{HOME}/onnxruntime-osx-x86_64-1.22.0")
-elseif (UNIX)
-    set(DEFAULT_ONNXRUNTIME_ROOT "$ENV{HOME}/onnxruntime-linux-x64-1.22.1")
-endif()
-set(ONNXRUNTIME_ROOTDIR ${DEFAULT_ONNXRUNTIME_ROOT} CACHE PATH "Path to ONNX Runtime installation")
-
-if (NOT EXISTS "${ONNXRUNTIME_ROOTDIR}/include/onnxruntime_cxx_api.h")
-    message(FATAL_ERROR "ONNXRuntime not found at ${ONNXRUNTIME_ROOTDIR}. 
-    Please set ONNXRUNTIME_ROOTDIR to your installation path.")
-endif()
-
-include_directories("${ONNXRUNTIME_ROOTDIR}/include")
-link_directories("${ONNXRUNTIME_ROOTDIR}/lib")
+include(libs/onnxruntime.cmake)
 
 # ---- LibTorch ----
-set(Torch_DIR "$ENV{HOME}/libtorch/share/cmake/Torch" CACHE PATH "Path to LibTorch cmake folder")
+set(DEFAULT_LIBTORCH_ROOT "$ENV{HOME}/libs/libtorch")
+set(LIBTORCH_ROOTDIR ${DEFAULT_LIBTORCH_ROOT} CACHE PATH "Path to LibTorch installation")
+set(CMAKE_PREFIX_PATH ${LIBTORCH_ROOTDIR})
+message(STATUS "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}")
 find_package(Torch REQUIRED)
-
-# ---- JSON Library ----
-find_package(nlohmann_json 3.2.0 REQUIRED)
+message(STATUS "Torch_DIR: ${Torch_DIR}")
+message(STATUS "Torch include dirs: ${TORCH_INCLUDE_DIRS}")
+message(STATUS "Torch libraries: ${TORCH_LIBRARIES}")
 
 # ---- Sources ----
 set(SOURCES
@@ -49,7 +39,7 @@ add_executable(causallm ${SOURCES})
 target_include_directories(causallm PRIVATE include)
 
 target_link_libraries(causallm
-    onnxruntime
+    onnxruntime::onnxruntime
     LibTok
     "${TORCH_LIBRARIES}"
     nlohmann_json::nlohmann_json
