@@ -15,6 +15,9 @@ SamplingEngine::SamplingEngine(const GenerationConfig& config,
         sampler_(sampler),
         profiler_(profiler) {}
 
+void SamplingEngine::updateProcessors(const std::string& key, int value) {
+    processors_.update(key, value);
+}
 
 std::vector<int64_t> SamplingEngine::generate(
     const std::vector<int64_t>& input_ids,

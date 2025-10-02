@@ -24,6 +24,10 @@ public:
         mmm::IModel* model
     );
 
+    void updateProcessors(const std::string& key, int value) {
+        processors_.update(key, value);
+    }
+
 private:
     GenerationConfig config_;
     LogitsProcessorList processors_;

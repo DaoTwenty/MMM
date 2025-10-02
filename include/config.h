@@ -9,9 +9,8 @@ namespace mmm {
 namespace sampling {
 
 struct GenerationConfig {
-    bool do_sample = true;
-    std::optional<float> epsilon_cutoff = std::nullopt;
-    std::optional<float> eta_cutoff = std::nullopt;     
+    bool do_sample = true;  
+    int min_new_tokens = 0;   
     int max_new_tokens = 256;
     int pad_token_id = 0;
     float repetition_penalty = 1.0f;
@@ -23,6 +22,7 @@ struct GenerationConfig {
         std::cout << "GenerationConfig:\n"
                   << "  do_sample=" << do_sample << "\n"
                   << "  max_new_tokens=" << max_new_tokens << "\n"
+                  << "  min_new_tokens=" << min_new_tokens << "\n"
                   << "  pad_token_id=" << pad_token_id << "\n"
                   << "  repetition_penalty=" << repetition_penalty << "\n"
                   << "  temperature=" << temperature << "\n"

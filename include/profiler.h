@@ -19,8 +19,6 @@ public:
         auto end_time = std::chrono::high_resolution_clock::now();
         double duration = std::chrono::duration<double, std::milli>(end_time - start_time_).count();
         total_time_ += duration;
-        //std::cout << "[Profiler] " << current_label_ << " took " 
-        //          << duration << " ms\n";
     }
 
     void reset() { total_time_ = 0.0; }

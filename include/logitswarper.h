@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "config.h"
+
 namespace mmm {
 
 namespace sampling {
@@ -111,6 +113,21 @@ public:
 private:
     float p_;
 };
+
+LogitsWarperList createWarperListFromConfig(const GenerationConfig& config) { 
+    LogitsWarperList warpers; 
+    // Temperature scaling 
+    if (config.temperature != 1.0f) { 
+        warpers.addWarper(std::make_shared<TemperatureLogitsWarper>(config.temperature)); 
+    } 
+    // Choose between Top-K and Top-P (mutually exclusive) 
+    if (config.top_k > 0 && config.top_p >= 1.0f) { 
+        warpers.addWarper(std::make_shared<TopKLogitsWarper>(config.top_k)); 
+    } else if (config.top_p < 1.0f) { 
+        warpers.addWarper(std::make_shared<TopPLogitsWarper>(config.top_p)); 
+    } 
+    return warpers; 
+}
 
 }
 

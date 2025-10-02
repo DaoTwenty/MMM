@@ -1,5 +1,5 @@
 {
-    "num_passes": 20,
+    "num_passes": 5,
     "seq_len": 16,
     "num_gen": 16,
     "models": [

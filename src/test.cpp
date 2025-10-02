@@ -109,7 +109,7 @@ int main(int argc, char** argv) {
     } else {
         std::cout << "Using random inputs :: sequence size " << seq_len << std::endl;
         // Prepare random input ids
-        std::vector<int64_t> input_ids(seq_len);
+        input_ids.resize(seq_len);
         std::random_device rd;
         std::mt19937 gen(rd());
         std::uniform_int_distribution<int64_t> dist(0, vocab_size - 1);

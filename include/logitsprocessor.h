@@ -20,6 +20,10 @@ public:
     // Process logits in-place, can use current generated sequence if needed
     virtual void process(std::vector<float>& logits,
                          const std::vector<int64_t>& current_tokens) = 0;
+
+    virtual const char* name() const = 0;
+
+    virtual void updateConfig(const std::string& key, int value) {}
 };
 
 // ----------------------------------------
@@ -36,6 +40,12 @@ public:
         for (const auto& processor : processors_) {
             processor->process(logits, current_tokens);
         }
+    }
+
+    void update(const std::string& key, int value) { 
+        for (auto& processor : processors_) { 
+            processor->updateConfig(key, value); 
+        } 
     }
 
 private:
@@ -68,6 +78,29 @@ private:
 };
 
 // ----------------------------------------
+// MaxLength Processor: force EOS when max length is reached
+// ----------------------------------------
+class MaxLengthLogitsProcessor : public LogitsProcessor {
+public:
+    MaxLengthLogitsProcessor(size_t max_length, int eos_token_id)
+        : max_length_(max_length), eos_token_id_(eos_token_id) {}
+
+    void process(std::vector<float>& logits,
+                 const std::vector<int64_t>& current_tokens) override {
+        if (current_tokens.size() < min_length_ &&
+            eos_token_id_ >= 0 &&
+            eos_token_id_ < (int)logits.size()) {
+            std::fill(logits.begin(), logits.end(), -1e9f); // mask all
+            scores[eos_token_id_] = 1e9f;
+        }
+    }
+
+private:
+    size_t max_length_;
+    int eos_token_id_;
+};
+
+// ----------------------------------------
 // MinLength Processor: forbid EOS until min length is reached
 // ----------------------------------------
 class MinLengthLogitsProcessor : public LogitsProcessor {
@@ -89,102 +122,117 @@ private:
     int eos_token_id_;
 };
 
-// ----------------------------------------
-// Temperature Processor (scales logits)
-// ----------------------------------------
-class TemperatureLogitsProcessor : public LogitsProcessor {
-public:
-    explicit TemperatureLogitsProcessor(float temperature) : temp_(temperature) {}
 
-    void process(std::vector<float>& logits,
-                 const std::vector<int64_t>& current_tokens) override {
-        if (temp_ == 1.0f) return;
-        for (auto& logit : logits) {
-            logit /= temp_;
+// ----------------------------------------
+// Bar Infill Stop Processor : Stop generation when enough content is generated.
+// ----------------------------------------
+class InfillStopLogitsProcessor : public LogitsProcessor {
+public:
+    InfillStopLogitsProcessor(
+        int infill_token_id,
+        int bar_token_id,
+        int eos_token_id)
+        : infill_token_id_(infill_token_id),
+          bar_token_id_(bar_token_id),
+          eos_token_id_(eos_token_id) {}
+
+    const char* name() const override { 
+        return "InfillStopLogitsProcessor"; 
+    }
+
+    void updateConfig(const std::string& key, int value) override { 
+        // expect keys like "InfillStopLogitsProcessor.n_bars_to_infill" 
+        std::string prefix = std::string(name()) + "."; 
+        if (key.rfind(prefix, 0) != 0) return; 
+        // not our prefix 
+        std::string local_key = key.substr(prefix.size()); 
+        if (local_key == "n_bars_to_infill") { 
+            set_n_bars_to_infill(value); 
+        } else if (local_key == "n_attribute_controls") { 
+            set_n_attribute_controls(value); 
+        } else if (local_key == "reset") {
+            reset();
         }
     }
 
-private:
-    float temp_;
-};
-
-/*
-// ----------------------------------------
-// Bar/Track Stop Processor : Stop generation when enough content is generated.
-// ----------------------------------------
-class StopLogitsProcessor : public LogitsProcessor {
-public:
-    StopLogitsProcessor(
-        int bar_start_token_id,
-        int eos_token_id,
-        libtok::Tokenizer* tokenizer)
-        : bar_start_token_id_(bar_start_token_id),
-          eos_token_id_(eos_token_id),
-          tokenizer_(tokenizer) {}
-
     void set_n_bars_to_infill(int n) { n_bars_to_infill_ = n; }
     void set_n_attribute_controls(int n) { n_attribute_controls_ = n; }
+
+    void reset() {
+        bar_start_found_ = false;
+        fill_start_idx_ = 0;
+        n_bar_none_ = 0;
+    }
 
     void operator()(std::vector<int64_t>& input_ids,
                     std::vector<float>& scores) override {
         auto start = std::chrono::high_resolution_clock::now();
 
-        // 1. Find FillBar_Start position
-        auto it = std::find(input_ids.begin(), input_ids.end(), bar_start_token_id_);
-        if (it == input_ids.end()) {
-            // No FillBar_Start token found, do nothing
-            return;
+        if (!bar_start_found_) {
+            // 1. Look for FillBar_Start for the first time
+            auto it = std::find(input_ids.begin(), input_ids.end(), infill_token_id_);
+            if (it == input_ids.end()) {
+                // Not found yet → do nothing
+                return;
+            }
+            fill_start_idx_ = std::distance(input_ids.begin(), it);
+            bar_start_found_ = true;
+            n_bar_none_ = 0; // reset counter
+            return;          // skip stopping logic this step
         }
 
-        size_t fill_start_idx = std::distance(input_ids.begin(), it);
+        // 2. If bar_start already found, only check the *last appended token*
+        if (!input_ids.empty()) {
+            int64_t last_id = input_ids.back();
 
-        // 2. Extract tokens after attribute controls
-        size_t decode_start = fill_start_idx + n_attribute_controls_ + 1;
-        std::vector<int64_t> generated_tokens;
-        if (decode_start < input_ids.size()) {
-            generated_tokens.assign(input_ids.begin() + decode_start, input_ids.end());
-            tokenizer_->decode(generated_tokens);  // Assume decode fills some internal state
-        }
+            if (last_id == bar_token_id_) {
+                ++n_bar_none_;
+            }
 
-        // 3. Count Bar_None occurrences
-        int n_bar_none = 0;
-        for (int64_t id : generated_tokens) {
-            if (id == tokenizer_->vocab_id("Bar_None")) {
-                ++n_bar_none;
+            // Stop condition: if we exceeded the planned number of bars
+            if (n_bar_none_ > n_bars_to_infill_) {
+                std::fill(scores.begin(), scores.end(), -1e9f); // mask all
+                scores[eos_token_id_] = 1e9f;                   // force EOS
+            } else {
+                // Prevent EOS until enough bars are generated
+                scores[eos_token_id_] = -1e9f;
             }
         }
-
-        // 4. Stop condition: force EOS if enough bars generated
-        if (n_bar_none > n_bars_to_infill_) {
-            std::fill(scores.begin(), scores.end(), -1e9f); // mask all
-            scores[eos_token_id_] = 1e9f;                  // force EOS
-        } else {
-            // Prevent EOS until enough bars are generated
-            scores[eos_token_id_] = -1e9f;
-        }
-
-        // 5. Custom rule: don't stop after Duration_5.0.1
-        if (!input_ids.empty() &&
-            input_ids.back() == tokenizer_->vocab_id("Duration_5.0.1")) {
-            scores[eos_token_id_] = -1e9f;
-        }
-
-        auto end = std::chrono::high_resolution_clock::now();
-        total_time_ += std::chrono::duration<double>(end - start).count();
     }
 
-    double total_time() const { return total_time_; }
-
 private:
-    int bar_start_token_id_;
+    int infill_token_id_;
+    int bar_token_id_;
     int eos_token_id_;
-    libtok::Tokenizer* tokenizer_;
+
     int n_bars_to_infill_ = 0;
     int n_attribute_controls_ = 0;
-    double total_time_ = 0.0;
-};
-*/
 
+    // State tracking
+    bool bar_start_found_ = false;
+    size_t fill_start_idx_ = 0;
+    int n_bar_none_ = 0; // running count
+};
+
+LogitsProcessorList createProcessorListFromConfig(const GenerationConfig& config, int eos_token_id, int infill_token_id, int bar_token_id) { 
+    LogitsProcessorList processors; 
+    // Repetition penalty 
+    if (config.repetition_penalty != 1.0f) { 
+        processors.addProcessor( std::make_shared<RepetitionPenaltyLogitsProcessor>(config.repetition_penalty)); 
+    } 
+    // Min length processor (forbid EOS until at least min length) 
+    if (config.max_new_tokens > 0) { 
+        processors.addProcessor( std::make_shared<MaxLengthLogitsProcessor>(config.max_new_tokens, eos_token_id)); 
+    } 
+
+    if (config.min_new_tokens > 0) { 
+        processors.addProcessor( std::make_shared<MinLengthLogitsProcessor>(config.min_new_tokens, eos_token_id)); 
+    }
+    // Always include InfillStopLogitsProcessor  
+    auto infill_stop = std::make_shared<InfillStopLogitsProcessor>( infill_token_id, bar_token_id, eos_token_id); 
+    processors.addProcessor(infill_stop); 
+    return processors;
 }
 
+}
 }

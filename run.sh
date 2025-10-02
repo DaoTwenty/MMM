@@ -31,8 +31,6 @@ mkdir -p "$BUILD_DIR"
 if [[ ! -f "$BUILD_DIR/CMakeCache.txt" ]]; then
     echo "Running initial CMake configuration..."
     cmake -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release \
-        -DLIBTOK_BUILD_TESTS=OFF \
-        -DLIBTOK_BUILD_BENCHMARKS=OFF \
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 fi
 

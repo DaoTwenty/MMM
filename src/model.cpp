@@ -6,10 +6,13 @@ static Ort::SessionOptions make_options(bool useCoreML) {
     Ort::SessionOptions opts;
     //opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
     //opts.SetLogSeverityLevel(0);  // verbose
-    opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_DISABLE_ALL);
+    //opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_DISABLE_ALL);
     //opts.SetIntraOpNumThreads(std::thread::hardware_concurrency());
     opts.SetInterOpNumThreads(1);
-    opts.SetExecutionMode(ExecutionMode::ORT_PARALLEL);
+    //opts.SetExecutionMode(ExecutionMode::ORT_PARALLEL);
+    opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_DISABLE_ALL);
+    opts.DisableMemPattern();               // session_options.DisableMemPattern();  (C API: OrtSessionOptionsDisableMemPattern)
+    opts.SetExecutionMode(ExecutionMode::ORT_SEQUENTIAL);
     std::unordered_map<std::string, std::string> provider_options;
     if (useCoreML) {
         provider_options["ModelFormat"] = "MLProgram";
