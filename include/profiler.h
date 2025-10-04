@@ -3,33 +3,34 @@
 #include <chrono>
 #include <string>
 #include <iostream>
+#include <exception>
 
 namespace mmm {
-
 namespace utils {
 
 class Profiler {
 public:
-    void start(const std::string& label) {
-        current_label_ = label;
+    void start() {
         start_time_ = std::chrono::high_resolution_clock::now();
+        running_ = true;
     }
 
     void stop() {
+        if (!running_) return; // prevent garbage
         auto end_time = std::chrono::high_resolution_clock::now();
-        double duration = std::chrono::duration<double, std::milli>(end_time - start_time_).count();
-        total_time_ += duration;
+        auto diff = std::chrono::duration<double, std::milli>(end_time - start_time_).count();
+        total_time_ += diff;
+        running_ = false;
     }
 
-    void reset() { total_time_ = 0.0; }
+    void reset() { total_time_ = 0.0; running_ = false; }
     double total_time() const { return total_time_; }
 
 private:
-    std::string current_label_;
     std::chrono::high_resolution_clock::time_point start_time_;
     double total_time_ = 0.0;
+    bool running_ = false;
 };
 
-}
-
-}
+} // namespace utils
+} // namespace mmm

@@ -65,11 +65,6 @@ CausalLMCached::CausalLMCached(const std::string& model_path, int vocab_size, bo
                 past_output_names.push_back(strdup(oname.c_str()));
             }
         }
-
-        std::cout << "✅ Loaded model with "
-                  << main_input_names.size() << " main inputs, "
-                  << past_input_names.size() << " past inputs, "
-                  << "and " << past_output_names.size() << " past outputs.\n";
 }
 
 CausalLMTorch::CausalLMTorch(const std::string& model_path, int vocab_size)

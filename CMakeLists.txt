@@ -4,9 +4,17 @@ project(CausalLMOnnx LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+include(FetchContent)
+
 # ---- LibTok ----
-list(APPEND CMAKE_PREFIX_PATH "/Users/paultriana/libtok/lib/cmake/LibTok")
-find_package(LibTok REQUIRED)
+set(LIBTOK_PATH "/Users/paultriana/libtok")
+
+include(external/Dependencies.cmake)
+FetchContent_Declare(
+    LibTok
+    SOURCE_DIR ${LIBTOK_PATH}
+)
+FetchContent_MakeAvailable(LibTok)
 
 # ---- ONNX Runtime ----
 if (APPLE)
@@ -45,6 +53,10 @@ set(SOURCES
     src/model.cpp
     src/sampler.cpp
     src/engine.cpp
+    src/inference_main.cpp
+    src/inference_bar_infill.cpp
+    src/inference_track_infill.cpp
+    src/inference_track_sample.cpp
 )
 
 add_executable(causallm ${SOURCES})

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+
 #include "sampler.h"
 #include "logitsprocessor.h"
 #include "logitswarper.h"
@@ -14,18 +16,28 @@ namespace sampling {
 class SamplingEngine {
 public:
     SamplingEngine(const GenerationConfig& config,
-                   LogitsProcessorList processors = {},
-                   LogitsWarperList warpers = {},
-                   Sampler sampler = {},
-                   mmm::utils::Profiler* profiler = nullptr);
+                    int eos_token_id,
+                    int vocab_size,
+                    LogitsProcessorList processors = {},
+                    LogitsWarperList warpers = {},
+                    Sampler sampler = {},
+                    bool profiler = false);
 
     std::vector<int64_t> generate(
         const std::vector<int64_t>& input_ids,
-        mmm::IModel* model
+        mmm::IModel* model,
+        bool verbose = false
     );
 
-    void updateProcessors(const std::string& key, int value) {
-        processors_.update(key, value);
+    void updateProcessors(const std::string& key, int value);
+
+    void resetProfiler() {
+        if (profiler_) profiler_->reset();
+    }
+
+    double totalTimeProfiler() {
+        if (profiler_) return profiler_->total_time();
+        return 0.0;
     }
 
 private:
@@ -34,6 +46,8 @@ private:
     LogitsWarperList warpers_;
     Sampler sampler_;
     mmm::utils::Profiler* profiler_;
+    int eos_token_id_;
+    int vocab_size_;
 };
 
 }

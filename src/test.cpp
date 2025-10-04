@@ -15,9 +15,12 @@
 #include "logitswarper.h"
 #include "profiler.h"       
 #include "config.h"  
+#include "inference.h"
+#include "utils.h"
 
 // LibTok
 #include "mmm.h"
+#include "utility_functions.h"
 
 // Helper to compute mean/std
 struct Stats {
@@ -68,10 +71,14 @@ struct BenchmarkModel {
 };
 
 int main(int argc, char** argv) {
-    if (argc < 3 || argc > 4) {
-        std::cout << "Usage: " << argv[0] << " <config.json> <tokenizer.json> ( optional <file.mid> )\n";
+    if (argc != 7) {
+        std::cout << "Usage: " << argv[0] << " <config.json> <tokenizer.json> <gen_config.json> <prompt.json> <file.mid> <verbose>\n";
         return 1;
     }
+
+    std::string verbose_arg = argv[6];
+    std::transform(verbose_arg.begin(), verbose_arg.end(), verbose_arg.begin(), ::tolower); // case-insensitive
+    bool verbose = (verbose_arg == "true" || verbose_arg == "1" || verbose_arg == "yes");
 
     // Load JSON config
     std::ifstream f(argv[1]);
@@ -84,37 +91,50 @@ int main(int argc, char** argv) {
 
     // Extract parameters
     int num_passes  = j.value("num_passes", 5);
-    int seq_len     = j.value("seq_len", 32);
-    int num_gen     = j.value("num_gen", 10);
     int vocab_size  = j.value("vocab_size", 16000);
 
-    std::vector<int64_t> input_ids;
-    std::string midi_file = "None/Random Input";
-    if (argc == 4) { 
-        std::cout << "Using MIDI file :: " << argv[3] << std::endl;
-        std::string midiStr = argv[3];
-        midi_file = midiStr;
-        std::string tokenizerStr = argv[2];
-        std::filesystem::path midiPath(midiStr);
-        std::filesystem::path tokenizerPath(tokenizerStr);
-        LibTok::MMM tokenizer = LibTok::MMM(tokenizerPath);
-        auto tokens = tokenizer.encode(midiPath);
-        LibTok::TokSequence tokSeq = std::get<LibTok::TokSequence>(tokens);
-        std::vector<std::string> tokenVec = tokSeq.tokens;
-        std::vector<int> token_ids = tokSeq.ids;
-        input_ids.reserve(token_ids.size());
+    mmm::sampling::GenerationConfig gen_cfg;
+    mmm::inference::PromptConfig prompt_cfg;
 
-        for (int id : token_ids)
-            input_ids.push_back(static_cast<int64_t>(id));
-    } else {
-        std::cout << "Using random inputs :: sequence size " << seq_len << std::endl;
-        // Prepare random input ids
-        input_ids.resize(seq_len);
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::uniform_int_distribution<int64_t> dist(0, vocab_size - 1);
-        for (auto &id : input_ids) id = dist(gen);
+    std::string gen_cfg_path = argv[3];
+    std::string prompt_cfg_path = argv[4];
+
+    try {
+        mmm::utils::loadGenerationConfigFromJson(gen_cfg_path, gen_cfg);
+    } catch (std::exception& e) {
+        std::cerr << "Error loading generation config: " << e.what() << "\n";
+        return 1;
     }
+
+    try {
+        mmm::utils::loadPromptConfigFromJson(prompt_cfg_path, prompt_cfg);
+    } catch (std::exception& e) {
+        std::cerr << "Error loading prompt: " << e.what() << "\n";
+        return 1;
+    }
+
+    std::string midiStr = argv[5];
+    std::string tokenizerStr = argv[2];
+    std::filesystem::path midiPath(midiStr);
+    std::filesystem::path tokenizerPath(tokenizerStr);
+    std::unique_ptr<LibTok::MMM> tokenizer;
+
+    try {
+        tokenizer = std::make_unique<LibTok::MMM>(tokenizerPath, false);
+    } catch (std::exception& e) {
+        std::cerr << "Error loading tokenizer: " << e.what() << "\n";
+        return 1;
+    }
+
+    LibTok::ScoreType score;
+    try {
+        score = LibTokUtils::loadScoreFromMidi(midiPath);
+    } catch (std::exception& e) {
+        std::cerr << "Error loading MIDI file: " << e.what() << "\n";
+        return 1;
+    }
+
+    mmm::sampling::SamplingEngine engine = mmm::inference::createEngine(gen_cfg, *tokenizer);
 
     // Parse and load models
     std::vector<BenchmarkModel> models;
@@ -139,45 +159,23 @@ int main(int argc, char** argv) {
         models.push_back(std::move(m));
     }
 
-    seq_len = input_ids.size();
     int n_models   = models.size();
     int tot_passes = n_models * num_passes;
     int cum_pass   = 0;
 
     std::cout << "Benchmarking " << n_models
               << " models :: " << num_passes
-              << " passes :: input data - " << midi_file 
-              << " :: " << seq_len
-              << " initial sequence length :: " << num_gen
-              << " generated tokens\n";
-
-    // Prepare SamplingEngine (model-agnostic)
-    mmm::sampling::GenerationConfig config;
-    config.max_new_tokens = num_gen;
-
-    mmm::sampling::Sampler sampler;
-
-    // Prepare LogitsProcessorList
-    mmm::sampling::LogitsProcessorList processors;
-    // Example: you could push processors here (temperature, top-k, etc.)
-    // processors.add(std::make_shared<TemperatureLogitsProcessor>(config.temperature));
-    mmm::sampling::LogitsWarperList warpers;
-
-    mmm::utils::Profiler profiler;
-
-    mmm::sampling::SamplingEngine engine(
-        config, 
-        processors, 
-        warpers, 
-        sampler, 
-        &profiler
-    );
+              << " passes :: input data - " << midiStr 
+              << " :: vocab size " << tokenizer->getVocabSize()
+              << " :: max new tokens " << gen_cfg.max_new_tokens
+              << "\n";
 
     // Benchmark loop
+    print_progress(cum_pass, tot_passes);
     for (int pass = 0; pass < num_passes; ++pass) {
         for (auto& m : models) {
             cum_pass++;
-            print_progress(cum_pass + 1, tot_passes);
+            print_progress(cum_pass, tot_passes);
 
             mmm::IModel* model = (m.type == BenchmarkModel::Type::ONNX)
                         ? static_cast<mmm::IModel*>(m.onnx_model)
@@ -187,13 +185,22 @@ int main(int argc, char** argv) {
                 model->reset_cache();
             }
 
-            profiler.reset();
+            engine.resetProfiler();
 
-            // Use sampling engine for generation
-            std::vector<int64_t> generated =
-                engine.generate(input_ids, model);
+            try {
+                mmm::inference::generate(
+                    model,
+                    *tokenizer,
+                    prompt_cfg,
+                    engine,
+                    score,
+                    verbose
+                );
 
-            m.times.push_back(profiler.total_time());
+                m.times.push_back(engine.totalTimeProfiler());
+            } catch (const std::exception& e) {
+                std::cerr << "Unable to generate. Error: " << e.what() << ". Passing...\n";
+            }
 
         }
     }

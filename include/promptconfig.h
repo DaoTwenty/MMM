@@ -17,16 +17,16 @@ struct BarInfilling {
     using BarSubset = std::tuple<int, int, Controls>;
     std::unordered_map<int, std::vector<BarSubset>> bars;
 
-    bool empty() {
-        return (!bars);
+    bool empty() const {
+        return bars.empty();
     }
 
     void print() const {
-        if (bars) {
+        if (!bars.empty()) {
             std::cout << "  bars_to_infill:\n";
-            for (auto &[track_idx, subsets] : *bars) {
+            for (const auto& [track_idx, subsets] : bars) {
                 std::cout << "    Track " << track_idx << ":\n";
-                for (auto &[start_bar, end_bar, controls] : subsets) {
+                for (const auto& [start_bar, end_bar, controls] : subsets) {
                     std::cout << "      bars [" << start_bar << ", " << end_bar << ")"
                               << ", controls=[";
                     for (size_t i = 0; i < controls.size(); ++i) {
@@ -40,21 +40,20 @@ struct BarInfilling {
             std::cout << "  bars_to_generate=None\n";
         }
     }
-
 };
 
 struct TrackInfilling {
     using Controls = std::vector<std::string>;
     std::unordered_map<int, Controls> tracks;
 
-    bool empty() {
-        return (!tracks);
+    bool empty() const {
+        return tracks.empty();
     }
 
     void print() const {
-        if (tracks) {
+        if (!tracks.empty()) {
             std::cout << " track_to_infill:\n";
-            for (auto &[track_idx, controls] : *tracks) {
+            for (const auto& [track_idx, controls] : tracks) {
                 std::cout << "    Track " << track_idx << ":\n";
                 std::cout << " controls=[";
                 for (size_t i = 0; i < controls.size(); ++i) {
@@ -67,20 +66,19 @@ struct TrackInfilling {
             std::cout << "  tracks_to_generate=None\n";
         }
     }
-
 };
 
 struct TrackSampling {
     std::vector<std::pair<int, std::vector<std::string>>> tracks;
 
-    bool empty() {
-        return (!tracks);
+    bool empty() const {
+        return tracks.empty();
     }
 
     void print() const {
-        if (tracks) {
+        if (!tracks.empty()) {
             std::cout << "  new_tracks:\n";
-            for (auto &[program, controls] : *tracks) {
+            for (const auto& [program, controls] : tracks) {
                 std::cout << "    program=" << program << ", controls=[";
                 for (size_t i = 0; i < controls.size(); ++i) {
                     std::cout << controls[i];
@@ -92,16 +90,16 @@ struct TrackSampling {
             std::cout << "  new_tracks=None\n";
         }
     }
-
 };
 
 using PromptMode = std::variant<BarInfilling, TrackInfilling,  TrackSampling>;
 
 struct PromptConfig {
     PromptMode mode;
-    int context_length = 4;
-    int bars_per_step = 1;
-    int tracks_per_step = 1;
+    // TODO: Implement
+    //int context_length = 4;
+    //int bars_per_step = 1;
+    //int tracks_per_step = 1;
 
     bool empty() const {
         return std::visit([](auto const &m) {

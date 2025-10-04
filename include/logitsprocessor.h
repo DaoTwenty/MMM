@@ -6,6 +6,8 @@
 #include <cmath>
 #include <algorithm>
 
+#include "config.h"
+
 namespace mmm {
 
 namespace sampling {
@@ -59,6 +61,8 @@ class RepetitionPenaltyLogitsProcessor : public LogitsProcessor {
 public:
     explicit RepetitionPenaltyLogitsProcessor(float penalty) : penalty_(penalty) {}
 
+    const char* name() const override { return "RepetitionPenaltyLogitsProcessor"; }
+
     void process(std::vector<float>& logits,
                  const std::vector<int64_t>& current_tokens) override {
         if (penalty_ == 1.0f) return; // no-op
@@ -85,13 +89,15 @@ public:
     MaxLengthLogitsProcessor(size_t max_length, int eos_token_id)
         : max_length_(max_length), eos_token_id_(eos_token_id) {}
 
+    const char* name() const override { return "MaxLengthLogitsProcessor"; }
+
     void process(std::vector<float>& logits,
                  const std::vector<int64_t>& current_tokens) override {
-        if (current_tokens.size() < min_length_ &&
+        if (current_tokens.size() >= max_length_ &&
             eos_token_id_ >= 0 &&
             eos_token_id_ < (int)logits.size()) {
             std::fill(logits.begin(), logits.end(), -1e9f); // mask all
-            scores[eos_token_id_] = 1e9f;
+            logits[eos_token_id_] = 1e9f;
         }
     }
 
@@ -108,6 +114,8 @@ public:
     MinLengthLogitsProcessor(size_t min_length, int eos_token_id)
         : min_length_(min_length), eos_token_id_(eos_token_id) {}
 
+    const char* name() const override { return "MinLengthLogitsProcessor"; }
+
     void process(std::vector<float>& logits,
                  const std::vector<int64_t>& current_tokens) override {
         if (current_tokens.size() < min_length_ &&
@@ -122,82 +130,96 @@ private:
     int eos_token_id_;
 };
 
+// ----------------------------------------
+// BaseStopLogitsProcessor : Common logic for active state and config updates.
+// ----------------------------------------
+class BaseStopLogitsProcessor : public LogitsProcessor {
+public:
+    BaseStopLogitsProcessor(const std::string& name) : name_(name) {}
+
+    const char* name() const override { return name_.c_str(); }
+
+    // Generic updateConfig that handles "reset" and "active"
+    void updateConfig(const std::string& key, int value) override {
+        std::string prefix = name_ + ".";
+        if (key.rfind(prefix, 0) != 0) return; // not our prefix
+
+        std::string local_key = key.substr(prefix.size());
+        if (local_key == "reset") {
+            reset();
+        } else if (local_key == "active") {
+            active_ = (value != 0);
+        } else {
+            handleUpdate(local_key, value); // subclass-specific
+        }
+    }
+
+    void reset() {
+        handleReset();
+    }
+
+    bool isActive() const { return active_; }
+
+protected:
+    // Hooks for subclasses
+    virtual void handleUpdate(const std::string& key, int value) {}
+    virtual void handleReset() {}
+
+    bool active_ = false;
+
+private:
+    std::string name_;
+};
+
 
 // ----------------------------------------
 // Bar Infill Stop Processor : Stop generation when enough content is generated.
 // ----------------------------------------
-class InfillStopLogitsProcessor : public LogitsProcessor {
+class BarInfillStopLogitsProcessor : public BaseStopLogitsProcessor {
 public:
-    InfillStopLogitsProcessor(
-        int infill_token_id,
-        int bar_token_id,
-        int eos_token_id)
-        : infill_token_id_(infill_token_id),
+    BarInfillStopLogitsProcessor(int infill_token_id, int bar_token_id, int eos_token_id)
+        : BaseStopLogitsProcessor("BarInfillStopLogitsProcessor"),
+          infill_token_id_(infill_token_id),
           bar_token_id_(bar_token_id),
           eos_token_id_(eos_token_id) {}
 
-    const char* name() const override { 
-        return "InfillStopLogitsProcessor"; 
-    }
+    void process(std::vector<float>& logits,
+                 const std::vector<int64_t>& current_tokens) override {
+        if (!isActive()) return;
 
-    void updateConfig(const std::string& key, int value) override { 
-        // expect keys like "InfillStopLogitsProcessor.n_bars_to_infill" 
-        std::string prefix = std::string(name()) + "."; 
-        if (key.rfind(prefix, 0) != 0) return; 
-        // not our prefix 
-        std::string local_key = key.substr(prefix.size()); 
-        if (local_key == "n_bars_to_infill") { 
-            set_n_bars_to_infill(value); 
-        } else if (local_key == "n_attribute_controls") { 
-            set_n_attribute_controls(value); 
-        } else if (local_key == "reset") {
-            reset();
+        if (!bar_start_found_) {
+            auto it = std::find(current_tokens.begin(), current_tokens.end(), infill_token_id_);
+            if (it == current_tokens.end()) return;
+
+            fill_start_idx_ = std::distance(current_tokens.begin(), it);
+            bar_start_found_ = true;
+            n_bar_none_ = 0;
+            return;
+        }
+
+        if (!current_tokens.empty()) {
+            int64_t last_id = current_tokens.back();
+            if (last_id == bar_token_id_) ++n_bar_none_;
+
+            if (n_bar_none_ > n_bars_to_infill_) {
+                std::fill(logits.begin(), logits.end(), -1e9f);
+                logits[eos_token_id_] = 1e9f;
+            } else {
+                logits[eos_token_id_] = -1e9f;
+            }
         }
     }
 
-    void set_n_bars_to_infill(int n) { n_bars_to_infill_ = n; }
-    void set_n_attribute_controls(int n) { n_attribute_controls_ = n; }
+protected:
+    void handleUpdate(const std::string& key, int value) override {
+        if (key == "n_bars_to_infill") n_bars_to_infill_ = value;
+        else if (key == "n_attribute_controls") n_attribute_controls_ = value;
+    }
 
-    void reset() {
+    void handleReset() override {
         bar_start_found_ = false;
         fill_start_idx_ = 0;
         n_bar_none_ = 0;
-    }
-
-    void operator()(std::vector<int64_t>& input_ids,
-                    std::vector<float>& scores) override {
-        auto start = std::chrono::high_resolution_clock::now();
-
-        if (!bar_start_found_) {
-            // 1. Look for FillBar_Start for the first time
-            auto it = std::find(input_ids.begin(), input_ids.end(), infill_token_id_);
-            if (it == input_ids.end()) {
-                // Not found yet → do nothing
-                return;
-            }
-            fill_start_idx_ = std::distance(input_ids.begin(), it);
-            bar_start_found_ = true;
-            n_bar_none_ = 0; // reset counter
-            return;          // skip stopping logic this step
-        }
-
-        // 2. If bar_start already found, only check the *last appended token*
-        if (!input_ids.empty()) {
-            int64_t last_id = input_ids.back();
-
-            if (last_id == bar_token_id_) {
-                ++n_bar_none_;
-            }
-
-            // Stop condition: if we exceeded the planned number of bars
-            if (n_bar_none_ > n_bars_to_infill_) {
-                std::fill(scores.begin(), scores.end(), -1e9f); // mask all
-                scores[eos_token_id_] = 1e9f;                   // force EOS
-            } else {
-                // Prevent EOS until enough bars are generated
-                scores[eos_token_id_] = -1e9f;
-            }
-        }
     }
 
 private:
@@ -208,31 +230,68 @@ private:
     int n_bars_to_infill_ = 0;
     int n_attribute_controls_ = 0;
 
-    // State tracking
     bool bar_start_found_ = false;
     size_t fill_start_idx_ = 0;
-    int n_bar_none_ = 0; // running count
+    int n_bar_none_ = 0;
 };
 
-LogitsProcessorList createProcessorListFromConfig(const GenerationConfig& config, int eos_token_id, int infill_token_id, int bar_token_id) { 
-    LogitsProcessorList processors; 
-    // Repetition penalty 
-    if (config.repetition_penalty != 1.0f) { 
-        processors.addProcessor( std::make_shared<RepetitionPenaltyLogitsProcessor>(config.repetition_penalty)); 
-    } 
-    // Min length processor (forbid EOS until at least min length) 
-    if (config.max_new_tokens > 0) { 
-        processors.addProcessor( std::make_shared<MaxLengthLogitsProcessor>(config.max_new_tokens, eos_token_id)); 
-    } 
+// ----------------------------------------
+// Track Sample Stop Processor : Stop generation when enough content is generated.
+// ----------------------------------------
+class TrackSampleStopLogitsProcessor : public BaseStopLogitsProcessor {
+public:
+    TrackSampleStopLogitsProcessor(int bar_token_id, int track_start_token_id, int track_end_token_id, int eos_token_id)
+        : BaseStopLogitsProcessor("TrackSampleStopLogitsProcessor"),
+          bar_token_id_(bar_token_id),
+          track_end_token_id_(track_end_token_id),
+          track_start_token_id_(track_start_token_id),
+          eos_token_id_(eos_token_id) {}
 
-    if (config.min_new_tokens > 0) { 
-        processors.addProcessor( std::make_shared<MinLengthLogitsProcessor>(config.min_new_tokens, eos_token_id)); 
+    void process(std::vector<float>& logits,
+                 const std::vector<int64_t>& current_tokens) override {
+        if (!isActive() || current_tokens.empty()) return;
+
+        logits[track_start_token_id_] = -1e9f;
+
+        int64_t last_id = current_tokens.back();
+
+        if (!finished_bars_ && last_id == bar_token_id_) {
+            ++n_bars_generated_;
+            if (n_bars_generated_ >= n_bars_to_generate_) finished_bars_ = true;
+        }
+
+        if (!finished_bars_) {
+            logits[track_end_token_id_] = -1e9f;
+            logits[eos_token_id_] = -1e9f;
+        } else {
+            logits[bar_token_id_] = -1e9f;
+            if (last_id == track_end_token_id_) {
+                std::fill(logits.begin(), logits.end(), -1e9f);
+                logits[eos_token_id_] = 1e9f;
+            }
+        }
     }
-    // Always include InfillStopLogitsProcessor  
-    auto infill_stop = std::make_shared<InfillStopLogitsProcessor>( infill_token_id, bar_token_id, eos_token_id); 
-    processors.addProcessor(infill_stop); 
-    return processors;
-}
+
+protected:
+    void handleUpdate(const std::string& key, int value) override {
+        if (key == "n_bars_to_generate") n_bars_to_generate_ = value;
+    }
+
+    void handleReset() override {
+        n_bars_generated_ = 0;
+        finished_bars_ = false;
+    }
+
+private:
+    int bar_token_id_;
+    int track_start_token_id_;
+    int track_end_token_id_;
+    int eos_token_id_;
+
+    int n_bars_to_generate_ = 0;
+    int n_bars_generated_ = 0;
+    bool finished_bars_ = false;
+};
 
 }
 }

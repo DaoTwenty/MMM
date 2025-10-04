@@ -1,0 +1,8 @@
+{
+  "mode": "TrackSampling",
+  "config": [
+    { "program": 10, "controls": [] },
+    { "program": 25, "controls": [] },
+    { "program": 33, "controls": [] }
+  ]
+}
