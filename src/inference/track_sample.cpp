@@ -12,9 +12,10 @@ void sample_tracks(
     mmm::inference::TrackSampling &sample_config,
     mmm::IModel* model,
     mmm::sampling::SamplingEngine &engine,
+    int context_length,
     bool verbose
 ) {
-    if (verbose) std::cout << "[SampleTracks] Beginning infill\n";
+    if (verbose) std::cout << "[SampleTracks] Beginning sampling\n";
 
     for (auto &[program, controls] : sample_config.tracks) {
         if (verbose) std::cout << "[SampleTracks] New track, program " << program << "\n";
@@ -113,10 +114,9 @@ int _adapt_prompt_for_sampling(
     Controls &controls,
     std::vector<LibTok::TokSequence> &token_seq,
     LibTok::TokSequence &input_tokens,
+    int context_length,
     bool verbose
 ) {
-
-    int num_context_bars = 8;
 
     if (verbose) {
         std::cout << "[AdaptPromptForTrackSample] Track Program=" << program
@@ -133,7 +133,7 @@ int _adapt_prompt_for_sampling(
         int num_bars = bar_subseqs.size();
         int tokseq_len = token_seq[i].size();
 
-        int context_start_idx = std::max(0, num_bars - num_context_bars);
+        int context_start_idx = std::max(0, num_bars - context_length);
         int context_end_idx = num_bars;
         
         if (context_start_idx != 0) {

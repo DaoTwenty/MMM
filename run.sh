@@ -42,5 +42,5 @@ cmake --build "$BUILD_DIR" -j 16
 # Anything after -- is passed to your binary
 if [[ $# -gt 0 ]]; then
     echo "Running benchmark..."
-    "$BUILD_DIR/causallm" "$@"
+    "$BUILD_DIR/mmm_benchmark" "$@"
 fi

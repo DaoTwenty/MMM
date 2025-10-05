@@ -14,7 +14,7 @@
 #include "logitsprocessor.h" 
 #include "logitswarper.h"
 #include "profiler.h"       
-#include "config.h"  
+#include "generationconfig.h"  
 #include "inference.h"
 #include "utils.h"
 
@@ -118,6 +118,7 @@ int main(int argc, char** argv) {
     std::filesystem::path midiPath(midiStr);
     std::filesystem::path tokenizerPath(tokenizerStr);
     std::unique_ptr<LibTok::MMM> tokenizer;
+    //tokenizer->tokenizerConfig.saveToJson("configs/tokenizer_export.json");
 
     try {
         tokenizer = std::make_unique<LibTok::MMM>(tokenizerPath, false);
@@ -134,7 +135,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    mmm::sampling::SamplingEngine engine = mmm::inference::createEngine(gen_cfg, *tokenizer);
+    mmm::sampling::SamplingEngine engine = mmm::inference::createEngine(gen_cfg, *tokenizer, -1, verbose);
 
     // Parse and load models
     std::vector<BenchmarkModel> models;

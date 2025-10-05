@@ -61,9 +61,10 @@ LibTok::ScoreType generate(
     bool verbose
 ) {
 
-    if (verbose) std::cout << "[Generate] Starting generation\n";
+    if (verbose) std::cout << "[Generate] Starting generation.\n";
 
     auto tokens = tokenizer.encode(score, true, false, {}, false);
+    if (verbose) std::cout << "[Generate] Encoding MIDI file.\n";
     std::vector<LibTok::TokSequence> token_seq = std::get<std::vector<LibTok::TokSequence>>(tokens);
 
     _preprocess_token_sequence_vector(token_seq, true, verbose);
@@ -74,23 +75,18 @@ LibTok::ScoreType generate(
         }
         if (verbose) std::cout << "[Generate] Running bar infilling\n";
         if (auto barCfg = std::get_if<mmm::inference::BarInfilling>(&cfg.mode)) {
-            infill_bars(token_seq, tokenizer, *barCfg, model, engine, verbose);
+            infill_bars(token_seq, tokenizer, *barCfg, model, engine, cfg.context_length, verbose);
         } else {
             throw std::runtime_error("[Generate] Given config does not hold BarInfilling variant");
         }
 
-    } else if (cfg.track_infilling()) {
-        if (cfg.empty()) {
-            throw std::invalid_argument("Track infilling mode requested but no track provided.");
-        }
-        throw std::invalid_argument("Track infilling is not yet supported.");
     } else if (cfg.track_sampling()) {
         if (cfg.empty()) {
             throw std::invalid_argument("Track sampling mode requested but no track provided.");
         }
-        if (verbose) std::cout << "[Generate] Running bar infilling\n";
+        if (verbose) std::cout << "[Generate] Running track sampling\n";
         if (auto barCfg = std::get_if<mmm::inference::TrackSampling>(&cfg.mode)) {
-            sample_tracks(token_seq, tokenizer, *barCfg, model, engine, verbose);
+            sample_tracks(token_seq, tokenizer, *barCfg, model, engine, cfg.context_length, verbose);
         } else {
             throw std::runtime_error("[Generate] Given config does not hold TrackSampling variant");
         }

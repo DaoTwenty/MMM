@@ -85,24 +85,26 @@ void CausalLMTorchCached::reset_cache() {
 }
 
 std::vector<float> CausalLMCached::forward(const std::vector<int64_t>& input_ids_raw) {
-    // NOTE: model expects int32 for ids/masks/positions
+    // NOTE: model expects int64 for ids/masks/positions
     size_t batch_size = 1;
     size_t seq_len = input_ids_raw.size();
 
-    // Convert input_ids to int32 (the model expects int32)
-    std::vector<int32_t> input_ids(seq_len);
-    for (size_t i = 0; i < seq_len; ++i) input_ids[i] = static_cast<int32_t>(input_ids_raw[i]);
+    // Convert input_ids to int64 (the model expects int64)
+    std::vector<int64_t> input_ids(seq_len);
+    for (size_t i = 0; i < seq_len; ++i) input_ids[i] = static_cast<int64_t>(input_ids_raw[i]);
 
+    /*
     std::cout << "=== Forward call ===\n";
     std::cout << "input_ids: [";
     for (auto id : input_ids) std::cout << id << " ";
     std::cout << "]\n";
+    */
 
     // -------------------------
-    // 1. input_ids tensor (int32)
+    // 1. input_ids tensor (int64)
     // -------------------------
     std::vector<int64_t> input_shape = {static_cast<int64_t>(batch_size), static_cast<int64_t>(seq_len)};
-    Ort::Value input_ids_tensor = Ort::Value::CreateTensor<int32_t>(
+    Ort::Value input_ids_tensor = Ort::Value::CreateTensor<int64_t>(
         memory_info,
         input_ids.data(), input_ids.size(),
         input_shape.data(), input_shape.size());
@@ -120,7 +122,7 @@ std::vector<float> CausalLMCached::forward(const std::vector<int64_t>& input_ids
 
     // initialize empty past tensors on first pass (only if vector truly empty)
     if (past_key_values.empty()) {
-        std::cout << "Initializing empty past tensors (first pass)\n";
+        // std::cout << "Initializing empty past tensors (first pass)\n";
         past_key_values.clear();
         // assume num_heads=8, head_size=64 per model description; batch_size=1, outer dim=2
         for (size_t i = 0; i < past_input_names.size(); ++i) {
@@ -138,53 +140,56 @@ std::vector<float> CausalLMCached::forward(const std::vector<int64_t>& input_ids
     }
 
     // debug past shapes
+    /*
     for (size_t i = 0; i < past_key_values.size(); ++i) {
         auto shape = past_key_values[i].GetTensorTypeAndShapeInfo().GetShape();
         std::cout << "past_key_values[" << i << "] shape: [";
         for (auto dim : shape) std::cout << dim << " ";
         std::cout << "]\n";
     }
+    */
 
     // -------------------------
-    // 4. position_ids (int32)
+    // 4. position_ids (int64)
     //    Model expects shape [batch, seq_len] (per your Netron snippet)
     // -------------------------
     Ort::Value pos_tensor(nullptr);
     if (has_input("position_ids")) {
         // position ids for current seq. If model expects absolute positions you may use past_len + i
-        std::vector<int32_t> position_ids(seq_len);
+        std::vector<int64_t> position_ids(seq_len);
         for (size_t i = 0; i < seq_len; ++i) {
             int64_t pos = past_len + static_cast<int64_t>(i);
             // optional clamp if model has MAX_POS
             constexpr int64_t MAX_POS = 8192;
             if (pos >= MAX_POS) pos = MAX_POS - 1;
-            position_ids[i] = static_cast<int32_t>(pos);
+            position_ids[i] = static_cast<int64_t>(pos);
         }
 
-        pos_tensor = Ort::Value::CreateTensor<int32_t>(
+        pos_tensor = Ort::Value::CreateTensor<int64_t>(
             memory_info, position_ids.data(), position_ids.size(),
             input_shape.data(), input_shape.size());
 
+        /*
         std::cout << "position_ids: [";
         for (auto p : position_ids) std::cout << p << " ";
         std::cout << "]\n";
+        */
     }
 
     // -------------------------
-    // 3. attention_mask (int32)
+    // 3. attention_mask (int64)
     //    Model expects shape [batch, total_seq_len] where total_seq_len = past_len + seq_len
     // -------------------------
     Ort::Value mask_tensor(nullptr);
     if (has_input("attention_mask")) {
         int64_t total_len = past_len + static_cast<int64_t>(seq_len);
-        std::vector<int32_t> attention_mask(total_len, 1);
+        std::vector<int64_t> attention_mask(total_len, 1);
         std::vector<int64_t> mask_shape = {static_cast<int64_t>(batch_size), total_len};
-        mask_tensor = Ort::Value::CreateTensor<int32_t>(
+        mask_tensor = Ort::Value::CreateTensor<int64_t>(
             memory_info, attention_mask.data(), attention_mask.size(),
             mask_shape.data(), mask_shape.size());
 
-        std::cout << "attention_mask length = " << attention_mask.size()
-                  << " (past_len=" << past_len << ", seq_len=" << seq_len << ")\n";
+        //std::cout << "attention_mask length = " << attention_mask.size() << " (past_len=" << past_len << ", seq_len=" << seq_len << ")\n";
     }
 
     // -------------------------
@@ -221,6 +226,7 @@ std::vector<float> CausalLMCached::forward(const std::vector<int64_t>& input_ids
     // -------------------------
     // 6. debug print: input names, types, shapes
     // -------------------------
+    /*
     for (size_t i = 0; i < run_inputs.size(); ++i) {
         auto info = run_inputs[i].GetTensorTypeAndShapeInfo();
         auto shape = info.GetShape();
@@ -229,6 +235,7 @@ std::vector<float> CausalLMCached::forward(const std::vector<int64_t>& input_ids
         for (auto d : shape) std::cout << d << " ";
         std::cout << "]\n";
     }
+    */
 
     // -------------------------
     // 7. build output names

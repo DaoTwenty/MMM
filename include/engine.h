@@ -7,7 +7,7 @@
 #include "logitswarper.h"
 #include "model.h"
 #include "profiler.h"
-#include "config.h"
+#include "generationconfig.h"
 
 namespace mmm {
 

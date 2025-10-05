@@ -42,32 +42,6 @@ struct BarInfilling {
     }
 };
 
-struct TrackInfilling {
-    using Controls = std::vector<std::string>;
-    std::unordered_map<int, Controls> tracks;
-
-    bool empty() const {
-        return tracks.empty();
-    }
-
-    void print() const {
-        if (!tracks.empty()) {
-            std::cout << " track_to_infill:\n";
-            for (const auto& [track_idx, controls] : tracks) {
-                std::cout << "    Track " << track_idx << ":\n";
-                std::cout << " controls=[";
-                for (size_t i = 0; i < controls.size(); ++i) {
-                    std::cout << controls[i];
-                    if (i + 1 < controls.size()) std::cout << ", ";
-                }
-                std::cout << "]\n";
-            } 
-        } else {
-            std::cout << "  tracks_to_generate=None\n";
-        }
-    }
-};
-
 struct TrackSampling {
     std::vector<std::pair<int, std::vector<std::string>>> tracks;
 
@@ -92,12 +66,12 @@ struct TrackSampling {
     }
 };
 
-using PromptMode = std::variant<BarInfilling, TrackInfilling,  TrackSampling>;
+using PromptMode = std::variant<BarInfilling, TrackSampling>;
 
 struct PromptConfig {
     PromptMode mode;
     // TODO: Implement
-    //int context_length = 4;
+    int context_length = 4;
     //int bars_per_step = 1;
     //int tracks_per_step = 1;
 
@@ -115,10 +89,6 @@ struct PromptConfig {
         return std::holds_alternative<BarInfilling>(mode);
     }
 
-    bool track_infilling() {
-        return std::holds_alternative<TrackInfilling>(mode);
-    }
-
     bool track_sampling() {
         return std::holds_alternative< TrackSampling>(mode);
     }
@@ -126,8 +96,6 @@ struct PromptConfig {
     void print() const {
         if (std::holds_alternative<BarInfilling>(mode)) {
             std::cout << "Mode: BarInfilling\n";
-        } else if (std::holds_alternative<TrackInfilling>(mode)) {
-            std::cout << "Mode: TrackInfilling\n";
         } else if (std::holds_alternative< TrackSampling>(mode)) {
             std::cout << "Mode: TrackSampling\n";
         }

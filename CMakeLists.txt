@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(CausalLMOnnx LANGUAGES CXX)
+project(MMM LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -49,26 +49,25 @@ find_package(nlohmann_json 3.2.0 REQUIRED)
 
 # ---- Sources ----
 set(SOURCES
-    src/test.cpp
+    src/benchmark.cpp
     src/model.cpp
     src/sampler.cpp
     src/engine.cpp
-    src/inference_main.cpp
-    src/inference_bar_infill.cpp
-    src/inference_track_infill.cpp
-    src/inference_track_sample.cpp
+    src/inference/inference.cpp
+    src/inference/bar_infill.cpp
+    src/inference/track_sample.cpp
 )
 
-add_executable(causallm ${SOURCES})
-target_include_directories(causallm PRIVATE include)
+add_executable(mmm_benchmark ${SOURCES})
+target_include_directories(mmm_benchmark PRIVATE include)
 
-target_link_libraries(causallm
+target_link_libraries(mmm_benchmark
     "${ONNXRUNTIME_LIBRARIES}"
     LibTok
     "${TORCH_LIBRARIES}"
     nlohmann_json::nlohmann_json
 )
 
-set_target_properties(causallm PROPERTIES
+set_target_properties(mmm_benchmark PROPERTIES
     BUILD_RPATH "${ONNXRUNTIME_ROOTDIR_PIP}"
 )

@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <cmath>
 
-#include "config.h"
+#include "generationconfig.h"
 
 namespace mmm {
 

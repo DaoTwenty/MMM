@@ -1,6 +1,6 @@
 {
     "do_sample": true,
-    "max_new_tokens": 16,
+    "max_new_tokens": 128,
     "min_new_tokens": 0,
     "pad_token_id": 0,
     "repetition_penalty": 1.0,

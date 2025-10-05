@@ -3,7 +3,7 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 
-#include "config.h"
+#include "generationconfig.h"
 #include "promptconfig.h"
 #include "inference.h"
 
@@ -45,14 +45,6 @@ inline void from_json(const nlohmann::json& j, mmm::inference::BarInfilling& cfg
     }
 }
 
-inline void from_json(const nlohmann::json& j, mmm::inference::TrackInfilling& cfg) {
-    for (auto it = j.begin(); it != j.end(); ++it) {
-        int track_idx = std::stoi(it.key());
-        mmm::inference::TrackInfilling::Controls controls = it.value().get<mmm::inference::TrackInfilling::Controls>();
-        cfg.tracks[track_idx] = controls;
-    }
-}
-
 inline void from_json(const nlohmann::json& j, mmm::inference::TrackSampling& cfg) {
     for (const auto& item : j) {
         int program = item.at("program").get<int>();
@@ -74,13 +66,7 @@ inline void loadPromptConfigFromJson(const std::string& path, mmm::inference::Pr
         mmm::inference::BarInfilling barCfg;
         from_json(j.at("config"), barCfg);
         cfg.mode = barCfg;
-    } 
-    else if (mode == "TrackInfilling") {
-        mmm::inference::TrackInfilling trackInfCfg;
-        from_json(j.at("config"), trackInfCfg);
-        cfg.mode = trackInfCfg;
-    } 
-    else if (mode == "TrackSampling") {
+    } else if (mode == "TrackSampling") {
         mmm::inference::TrackSampling trackSampCfg;
         from_json(j.at("config"), trackSampCfg);
         cfg.mode = trackSampCfg;
@@ -89,7 +75,7 @@ inline void loadPromptConfigFromJson(const std::string& path, mmm::inference::Pr
         throw std::runtime_error("Unknown PromptConfig mode: " + mode);
     }
 
-    //if (j.contains("context_length")) cfg.context_length = j.at("context_length").get<int>();
+    if (j.contains("context_length")) cfg.context_length = j.at("context_length").get<int>();
     //if (j.contains("bars_per_step")) cfg.bars_per_step = j.at("bars_per_step").get<int>();
     //if (j.contains("tracks_per_step")) cfg.tracks_per_step = j.at("tracks_per_step").get<int>();
 

@@ -12,6 +12,7 @@ void infill_bars(
     mmm::inference::BarInfilling &infill_config,
     mmm::IModel* model,
     mmm::sampling::SamplingEngine &engine,
+    int context_length,
     bool verbose
 ) {
 
@@ -52,6 +53,7 @@ void infill_bars(
                 subset, 
                 token_seq, 
                 input_tokens,
+                context_length,
                 verbose
             );
 
@@ -130,9 +132,9 @@ std::pair<int,int> _adapt_prompt_for_infilling(
     BarSubset &subset,
     std::vector<LibTok::TokSequence> &token_seq,
     LibTok::TokSequence &input_tokens,
+    int context_length,
     bool verbose
 ) {
-    int num_context_bars = 8;
     
     int start_bar_idx = std::get<0>(subset);
     int end_bar_idx = std::get<1>(subset);
@@ -162,8 +164,8 @@ std::pair<int,int> _adapt_prompt_for_infilling(
         std::cout << "[AdaptPromptForBarInfill] Track " << track_idx << " has " << num_bars << " bars\n"; 
     }
 
-    int context_start_idx = std::max(0, start_bar_idx - num_context_bars);
-    int context_end_idx = std::min(start_bar_idx + num_context_bars, num_bars );
+    int context_start_idx = std::max(0, start_bar_idx - context_length);
+    int context_end_idx = std::min(start_bar_idx + context_length, num_bars );
     if (verbose) { 
         std::cout << "[AdaptPromptForBarInfill] Context range: " 
         << context_start_idx << " -> " << context_end_idx << "\n"; 

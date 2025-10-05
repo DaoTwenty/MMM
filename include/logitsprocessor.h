@@ -6,7 +6,7 @@
 #include <cmath>
 #include <algorithm>
 
-#include "config.h"
+#include "generationconfig.h"
 
 namespace mmm {
 
@@ -186,6 +186,8 @@ public:
     void process(std::vector<float>& logits,
                  const std::vector<int64_t>& current_tokens) override {
         if (!isActive()) return;
+
+        logits[track_start_token_id_] = -1e9f;
 
         if (!bar_start_found_) {
             auto it = std::find(current_tokens.begin(), current_tokens.end(), infill_token_id_);

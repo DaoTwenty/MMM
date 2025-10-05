@@ -38,15 +38,7 @@ void sample_tracks(
     mmm::inference::TrackSampling &sample_config,
     mmm::IModel* model,
     mmm::sampling::SamplingEngine &engine,
-    bool verbose = false
-);
-
-void infill_tracks(
-    std::vector<LibTok::TokSequence> &token_seq,
-    LibTok::MMM &tokenizer,                               
-    mmm::inference::TrackInfilling &infill_config,
-    mmm::IModel* model,
-    mmm::sampling::SamplingEngine &engine,
+    int context_length,
     bool verbose = false
 );
 
@@ -56,6 +48,7 @@ void infill_bars(
     mmm::inference::BarInfilling &infill_config,
     mmm::IModel* model,
     mmm::sampling::SamplingEngine &engine,
+    int context_length,
     bool verbose = false
 );
 
@@ -65,6 +58,7 @@ std::pair<int, int> _adapt_prompt_for_infilling(
     BarSubset &subset,
     std::vector<LibTok::TokSequence> &token_seq,
     LibTok::TokSequence &input_tokens,
+    int context_length,
     bool verbose = false
 );
 
@@ -81,6 +75,7 @@ int _adapt_prompt_for_sampling(
     Controls &controls,
     std::vector<LibTok::TokSequence> &token_seq,
     LibTok::TokSequence &input_tokens,
+    int context_length,
     bool verbose = false
 );
 
