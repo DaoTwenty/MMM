@@ -1,9 +1,6 @@
 {
-  "num_passes": 5,
+  "num_passes": 20,
   "models": [
-    { "name": "Mistral ONNX No-Cache 1", "type": "ONNX", "path": "../models/MISTRAL_123000/model.onnx/model.onnx"},
-    { "name": "Mistral ONNX Cached 1", "type": "ONNX", "path": "../models/MISTRAL_123000/model.onnx/model.onnx", "cache":true},
-    { "name": "Mistral ONNX No-Cache 2", "type": "ONNX", "path": "../models/MISTRAL_123000_ONNX/model.onnx"},
-    { "name": "Mistral ONNX Cached 2", "type": "ONNX", "path": "../models/MISTRAL_123000_OPT_ONNX/model.onnx", "cache":true}  
+    { "name": "Mistral ONNX Default", "type": "ONNX", "path": "../models/MISTRAL_123000_ONNX/model.onnx"}  
   ]
 }

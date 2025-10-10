@@ -6,9 +6,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(FetchContent)
 
+# ---- Build options ----
+option(BUILD_PYBIND "Build pybind11 Python module" OFF)
+option(BUILD_BENCHMARK "Build benchmarking executable" ON)
+
+# Ensure that at least one target is built
+if(NOT BUILD_PYBIND AND NOT BUILD_BENCHMARK)
+    message(FATAL_ERROR "At least one of BUILD_PYBIND or BUILD_BENCHMARK must be ON.")
+endif()
+
 # ---- LibTok ----
 set(LIBTOK_PATH "/Users/paultriana/libtok")
-
 include(external/Dependencies.cmake)
 FetchContent_Declare(
     LibTok
@@ -26,17 +34,14 @@ set(ONNXRUNTIME_ROOTDIR ${DEFAULT_ONNXRUNTIME_ROOT} CACHE PATH "Path to ONNX Run
 set(ONNXRUNTIME_ROOTDIR_PIP "${CMAKE_CURRENT_SOURCE_DIR}/.venv/lib/python3.11/site-packages/onnxruntime/capi")
 
 if (NOT EXISTS "${ONNXRUNTIME_ROOTDIR}/include/onnxruntime_cxx_api.h")
-    message(FATAL_ERROR "ONNXRuntime not found at ${ONNXRUNTIME_ROOTDIR}. 
-    Please set ONNXRUNTIME_ROOTDIR to your installation path.")
+    message(FATAL_ERROR "ONNXRuntime not found at ${ONNXRUNTIME_ROOTDIR}. Please set ONNXRUNTIME_ROOTDIR.")
 endif()
 
 include_directories("${ONNXRUNTIME_ROOTDIR}/include")
 link_directories("${ONNXRUNTIME_ROOTDIR_PIP}")
 
-# Find the actual .dylib in the pip folder
 file(GLOB ONNXRUNTIME_LIBRARIES "${ONNXRUNTIME_ROOTDIR_PIP}/libonnxruntime*.dylib")
-
-if(NOT ONNXRUNTIME_LIBRARIES)
+if (NOT ONNXRUNTIME_LIBRARIES)
     message(FATAL_ERROR "Could not find libonnxruntime*.dylib in ${ONNXRUNTIME_ROOTDIR_PIP}")
 endif()
 
@@ -47,27 +52,57 @@ find_package(Torch REQUIRED)
 # ---- JSON Library ----
 find_package(nlohmann_json 3.2.0 REQUIRED)
 
-# ---- Sources ----
-set(SOURCES
-    src/benchmark.cpp
-    src/model.cpp
-    src/sampler.cpp
-    src/engine.cpp
-    src/inference/inference.cpp
-    src/inference/bar_infill.cpp
-    src/inference/track_sample.cpp
-)
+if (BUILD_BENCHMARK)
+    # ---- Sources ----
+    set(SOURCES
+        src/benchmark.cpp
+        src/model.cpp
+        src/sampler.cpp
+        src/engine.cpp
+        src/inference/inference.cpp
+        src/inference/bar_infill.cpp
+        src/inference/track_sample.cpp
+    )
 
-add_executable(mmm_benchmark ${SOURCES})
-target_include_directories(mmm_benchmark PRIVATE include)
+    # ---- Benchmark executable ----
+    add_executable(mmm_benchmark ${SOURCES})
+    target_include_directories(mmm_benchmark PRIVATE include)
+    target_link_libraries(mmm_benchmark
+        "${ONNXRUNTIME_LIBRARIES}"
+        LibTok
+        "${TORCH_LIBRARIES}"
+        nlohmann_json::nlohmann_json
+    )
+    set_target_properties(mmm_benchmark PROPERTIES
+        BUILD_RPATH "${ONNXRUNTIME_ROOTDIR_PIP}"
+    )
+endif()
 
-target_link_libraries(mmm_benchmark
-    "${ONNXRUNTIME_LIBRARIES}"
-    LibTok
-    "${TORCH_LIBRARIES}"
-    nlohmann_json::nlohmann_json
-)
+# ---- Pybind11 Python module ----
+if (BUILD_PYBIND)
+    # Add pybind11
+    add_subdirectory(external/pybind11)
 
-set_target_properties(mmm_benchmark PROPERTIES
-    BUILD_RPATH "${ONNXRUNTIME_ROOTDIR_PIP}"
-)
+    # All sources for pybind module (include inference bindings)
+    set(PYBIND_SOURCES
+        pylib/bindings.cpp
+        src/model.cpp
+        src/engine.cpp
+        src/sampler.cpp
+        src/inference/inference.cpp
+        src/inference/bar_infill.cpp
+        src/inference/track_sample.cpp
+    )
+
+    pybind11_add_module(mmm ${PYBIND_SOURCES})
+    target_include_directories(mmm PRIVATE include)
+    target_link_libraries(mmm PRIVATE
+        LibTok
+        "${TORCH_LIBRARIES}"
+        nlohmann_json::nlohmann_json
+        "${ONNXRUNTIME_LIBRARIES}"
+    )
+    set_target_properties(mmm PROPERTIES
+        BUILD_RPATH "${ONNXRUNTIME_ROOTDIR_PIP}"
+    )
+endif()

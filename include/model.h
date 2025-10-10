@@ -12,6 +12,14 @@
 
 namespace mmm {
 
+struct ModelConfig {
+    std::string path;
+    std::string type = "ONNX";
+    bool cached = false;
+    bool coreml = false;
+    int vocab_size = 16000;
+};
+
 class IModel {
 public:
 virtual ~IModel() = default;

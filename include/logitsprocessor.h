@@ -65,69 +65,31 @@ public:
 
     void process(std::vector<float>& logits,
                  const std::vector<int64_t>& current_tokens) override {
+        bool verbose_ = true;
+
+        if (verbose_) {
+            std::cout << "[RepetitionPenalty] logits size=" << logits.size() 
+                      << ", penalty=" << penalty_ << "\n";
+        }
+
         if (penalty_ == 1.0f) return; // no-op
 
         for (int64_t token : current_tokens) {
             if (token >= 0 && token < (int64_t)logits.size()) {
+                float old_val = logits[token];
                 if (logits[token] < 0)
                     logits[token] *= penalty_;
                 else
                     logits[token] /= penalty_;
+
+                if (verbose_) std::cout << "  token " << token << ": " 
+                                       << old_val << " -> " << logits[token] << "\n";
             }
         }
     }
 
 private:
     float penalty_;
-};
-
-// ----------------------------------------
-// MaxLength Processor: force EOS when max length is reached
-// ----------------------------------------
-class MaxLengthLogitsProcessor : public LogitsProcessor {
-public:
-    MaxLengthLogitsProcessor(size_t max_length, int eos_token_id)
-        : max_length_(max_length), eos_token_id_(eos_token_id) {}
-
-    const char* name() const override { return "MaxLengthLogitsProcessor"; }
-
-    void process(std::vector<float>& logits,
-                 const std::vector<int64_t>& current_tokens) override {
-        if (current_tokens.size() >= max_length_ &&
-            eos_token_id_ >= 0 &&
-            eos_token_id_ < (int)logits.size()) {
-            std::fill(logits.begin(), logits.end(), -1e9f); // mask all
-            logits[eos_token_id_] = 1e9f;
-        }
-    }
-
-private:
-    size_t max_length_;
-    int eos_token_id_;
-};
-
-// ----------------------------------------
-// MinLength Processor: forbid EOS until min length is reached
-// ----------------------------------------
-class MinLengthLogitsProcessor : public LogitsProcessor {
-public:
-    MinLengthLogitsProcessor(size_t min_length, int eos_token_id)
-        : min_length_(min_length), eos_token_id_(eos_token_id) {}
-
-    const char* name() const override { return "MinLengthLogitsProcessor"; }
-
-    void process(std::vector<float>& logits,
-                 const std::vector<int64_t>& current_tokens) override {
-        if (current_tokens.size() < min_length_ &&
-            eos_token_id_ >= 0 &&
-            eos_token_id_ < (int)logits.size()) {
-            logits[eos_token_id_] = -1e10f; // mask EOS
-        }
-    }
-
-private:
-    size_t min_length_;
-    int eos_token_id_;
 };
 
 // ----------------------------------------
@@ -174,67 +136,79 @@ private:
 
 // ----------------------------------------
 // Bar Infill Stop Processor : Stop generation when enough content is generated.
-// ----------------------------------------
 class BarInfillStopLogitsProcessor : public BaseStopLogitsProcessor {
 public:
-    BarInfillStopLogitsProcessor(int infill_token_id, int bar_token_id, int eos_token_id)
+    BarInfillStopLogitsProcessor(int infill_start_token_id, int infill_end_token_id, int bar_token_id, int eos_token_id)
         : BaseStopLogitsProcessor("BarInfillStopLogitsProcessor"),
-          infill_token_id_(infill_token_id),
+          infill_start_token_id_(infill_start_token_id),
+          infill_end_token_id_(infill_end_token_id),
           bar_token_id_(bar_token_id),
           eos_token_id_(eos_token_id) {}
 
-    void process(std::vector<float>& logits,
-                 const std::vector<int64_t>& current_tokens) override {
-        if (!isActive()) return;
+    void process(std::vector<float>& logits, const std::vector<int64_t>& current_tokens) override {
+        bool verbose_ = false;
 
-        logits[track_start_token_id_] = -1e9f;
-
-        if (!bar_start_found_) {
-            auto it = std::find(current_tokens.begin(), current_tokens.end(), infill_token_id_);
-            if (it == current_tokens.end()) return;
-
-            fill_start_idx_ = std::distance(current_tokens.begin(), it);
-            bar_start_found_ = true;
-            n_bar_none_ = 0;
+        if (!isActive()) {
+            if (verbose_) std::cout << "[BarInfillStopLogitsProcessor] Not active, skipping\n";
             return;
         }
 
-        if (!current_tokens.empty()) {
-            int64_t last_id = current_tokens.back();
-            if (last_id == bar_token_id_) ++n_bar_none_;
-
-            if (n_bar_none_ > n_bars_to_infill_) {
-                std::fill(logits.begin(), logits.end(), -1e9f);
-                logits[eos_token_id_] = 1e9f;
-            } else {
-                logits[eos_token_id_] = -1e9f;
-            }
+        if (current_tokens.empty()) {
+            if (verbose_) std::cout << "[BarInfillStopLogitsProcessor] No current tokens!\n";
+            return;
         }
+
+        // Mask EOS by default
+        logits[eos_token_id_] = -1e9f;
+
+        // Increment bars generated if last token is Bar_None
+        int64_t last_token = current_tokens.back();
+        if (last_token == infill_end_token_id_) {
+            if (verbose_) std::cout << "[BarInfillStopLogitsProcessor] Reached InfillBar_End, forcing EOS\n";
+            std::fill(logits.begin(), logits.end(), -1e9f);
+            logits[eos_token_id_] = 1e9f;
+        }
+        else if (last_token == bar_token_id_) {
+            ++num_bars_generated_;
+            if (verbose_) std::cout << "[BarInfillStopLogitsProcessor] Last token is Bar_None, incremented num_bars_generated = " << num_bars_generated_ << "\n";
+        }
+
+        // If enough bars generated, allow FillBar_End, mask everything else
+        if (num_bars_generated_ >= n_bars_to_infill_ ){
+            logits[bar_token_id_] = 1e9f;
+            logits[infill_end_token_id_] = 1e9f; // allow FillBar_End
+            if (verbose_) std::cout << "[BarInfillStopLogitsProcessor] Reached n_bars_to_infill, masking all except FillBar_End\n";
+            return;
+        }
+
+
+        // We cannot yet mask FillBar_End because bar counting fails due to BPE (we must check byte content).
+        // In this case we trust the model to respect logical structure
+        //logits[infill_end_token_id_] = -1e9f;
+        if (verbose_) std::cout << "[BarInfillStopLogitsProcessor] Not enough bars yet (outside BPE encoded bar tokens)\n";
+
+        if (verbose_) std::cout << "[BarInfillStopLogitsProcessor] EOS token " << eos_token_id_ << " masked (-1e9)\n";
     }
 
 protected:
     void handleUpdate(const std::string& key, int value) override {
         if (key == "n_bars_to_infill") n_bars_to_infill_ = value;
-        else if (key == "n_attribute_controls") n_attribute_controls_ = value;
     }
 
     void handleReset() override {
         bar_start_found_ = false;
-        fill_start_idx_ = 0;
-        n_bar_none_ = 0;
+        num_bars_generated_ = 0;
     }
 
 private:
-    int infill_token_id_;
+    int infill_start_token_id_;
+    int infill_end_token_id_;
     int bar_token_id_;
     int eos_token_id_;
 
     int n_bars_to_infill_ = 0;
-    int n_attribute_controls_ = 0;
-
+    int num_bars_generated_ = 0;
     bool bar_start_found_ = false;
-    size_t fill_start_idx_ = 0;
-    int n_bar_none_ = 0;
 };
 
 // ----------------------------------------
@@ -251,26 +225,43 @@ public:
 
     void process(std::vector<float>& logits,
                  const std::vector<int64_t>& current_tokens) override {
-        if (!isActive() || current_tokens.empty()) return;
+        bool verbose_ = false;
+        if (!isActive() || current_tokens.empty()) {
+            if (verbose_) std::cout << "[TrackSampleStop] Not active or empty tokens, skipping\n";
+            return;
+        }
 
-        logits[track_start_token_id_] = -1e9f;
+        if (verbose_) std::cout << "[TrackSampleStop] logits size=" << logits.size() 
+                                << ", last token=" << current_tokens.back() << "\n";
 
         int64_t last_id = current_tokens.back();
 
+        if (last_id == track_end_token_id_) {
+            std::fill(logits.begin(), logits.end(), -1e9f);
+            logits[eos_token_id_] = 1e9f;
+            if (verbose_) std::cout << "[TrackSampleStop] Last token was track_end, masked all, EOS=1e9\n";
+            return;
+        }
+    
+        logits[track_start_token_id_] = -1e9f;
+        if (verbose_) std::cout << "[TrackSampleStop] Track start token " << track_start_token_id_ << " masked (-1e9)\n";
+
         if (!finished_bars_ && last_id == bar_token_id_) {
             ++n_bars_generated_;
-            if (n_bars_generated_ >= n_bars_to_generate_) finished_bars_ = true;
+            if (verbose_) std::cout << "[TrackSampleStop] BAR token detected, n_bars_generated_=" << n_bars_generated_ << "\n";
+            if (n_bars_generated_ >= n_bars_to_generate_) {
+                finished_bars_ = true;
+                if (verbose_) std::cout << "[TrackSampleStop] Finished bars reached, finished_bars_=true\n";
+            }
         }
 
         if (!finished_bars_) {
-            logits[track_end_token_id_] = -1e9f;
+            // Removing because bar counting doesn't work due to BPE bar token encoding
+            //logits[track_end_token_id_] = -1e9f;
             logits[eos_token_id_] = -1e9f;
+            if (verbose_) std::cout << "[TrackSampleStop] Not finished bars, masked and EOS\n";
         } else {
             logits[bar_token_id_] = -1e9f;
-            if (last_id == track_end_token_id_) {
-                std::fill(logits.begin(), logits.end(), -1e9f);
-                logits[eos_token_id_] = 1e9f;
-            }
         }
     }
 

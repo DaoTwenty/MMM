@@ -40,6 +40,17 @@ public:
         return 0.0;
     }
 
+    const GenerationConfig& getConfig() const { return config_; }
+    void setConfig(const GenerationConfig& cfg) { config_ = cfg; }
+
+    int getVocabSize() const { return vocab_size_; }
+    int getEosTokenId() const { return eos_token_id_; }
+
+    // Store the seed (optional — if not already)
+    int getSeed() const { return sampler_.getSeed(); }
+    void setSeed(int new_seed) { 
+        sampler_.setSeed(new_seed); }
+
 private:
     GenerationConfig config_;
     LogitsProcessorList processors_;

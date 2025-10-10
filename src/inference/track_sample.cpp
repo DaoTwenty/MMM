@@ -46,13 +46,9 @@ void sample_tracks(
             controls,
             token_seq,
             input_tokens,
+            context_length,
             verbose
         );
-
-        if (verbose) { 
-            std::cout << "[SampleTracks] Input sequence. Size=" 
-            << input_tokens.tokens.size() << ".\n";
-        }
 
         std::vector<int64_t> input_ids;
         input_ids.reserve(input_tokens.size());
@@ -71,7 +67,7 @@ void sample_tracks(
 
         LibTok::TokSequence generated_seq({}, gen_ids, {}, {}, true);
 
-        tokenizer.complete_sequence(generated_seq);
+        //tokenizer.complete_sequence(generated_seq);
         if (tokenizer.isTrained()) {
             tokenizer.decodeTokenIds(generated_seq);
         }
@@ -119,7 +115,8 @@ int _adapt_prompt_for_sampling(
 ) {
 
     if (verbose) {
-        std::cout << "[AdaptPromptForTrackSample] Track Program=" << program
+        std::cout << "[AdaptPromptForTrackSample] Context Length = " << context_length <<"\n";
+        std::cout << "[AdaptPromptForTrackSample] Track Program = " << program
         << " Controls=[";
         for (auto &control : controls) {
             std::cout << control;
@@ -130,11 +127,14 @@ int _adapt_prompt_for_sampling(
     for (int i = 0; i < token_seq.size(); i++) {
 
         auto bar_subseqs = token_seq[i].splitPerBars();
+        //tokenizer.encodeTokenIds(bar_subseqs);
         int num_bars = bar_subseqs.size();
         int tokseq_len = token_seq[i].size();
 
-        int context_start_idx = std::max(0, num_bars - context_length);
-        int context_end_idx = num_bars;
+        //int context_start_idx = std::max(0, num_bars - context_length);
+        //int context_end_idx = num_bars;
+        int context_start_idx = 0;
+        int context_end_idx = std::min(context_length, num_bars);
         
         if (context_start_idx != 0) {
             input_tokens += token_seq[i].slice(0, 2);
@@ -148,7 +148,12 @@ int _adapt_prompt_for_sampling(
 
     int last_track_start_idx = input_tokens.size();
 
-    std::vector<std::string> new_track_tokens = {"Track_Start"};
+    tokenizer.encodeTokenIds(input_tokens);
+
+    std::vector<std::string> new_track_tokens = {
+        "Track_Start",
+        "Program_" + std::to_string(program)
+    };
     for (auto &control : controls) {
         new_track_tokens.push_back(control);
     }
@@ -168,13 +173,20 @@ int _adapt_prompt_for_sampling(
 }
 
 std::vector<std::string> extractSampledContent(
-    const std::vector<std::string>& tokens,
+    std::vector<std::string>& tokens,
     size_t last_track_start_idx,
     int num_bars_to_gen,
     int num_tracks_before,
     bool verbose
 ) {
     std::vector<std::string> track_tokens;
+
+    if (!tokens.empty()) {
+        if (tokens.back() == "EOS_None") {
+            if (verbose) std::cout << "[extractSampledContent] Removing EOS token\n";
+            tokens.pop_back(); // remove EOS if it's last
+        }
+    }
 
     // --- 1. Find all Track_Starts
     std::vector<size_t> track_starts;
@@ -239,37 +251,9 @@ std::vector<std::string> extractSampledContent(
         }
     }
 
-
-    // --- 4. Verify bar count
-    int bar_count = std::count(track_tokens.begin(), track_tokens.end(), "Bar_None");
-    if (bar_count < num_bars_to_gen) {
-        if (verbose) {
-            std::cerr << "[extractSampledContent] Warning: Only " << bar_count
-                      << " bars generated, expected " << num_bars_to_gen
-                      << ". Filling with empty bars.\n";
-        }
-        for (int i = bar_count; i < num_bars_to_gen; ++i) {
-            track_tokens.insert(track_tokens.end() - 1, "Bar_None");
-        }
-    } else if (bar_count > num_bars_to_gen) {
-        if (verbose) {
-            std::cerr << "[extractSampledContent] Warning: Generated " << bar_count
-                      << " bars, expected " << num_bars_to_gen
-                      << ". Trimming extras.\n";
-        }
-        int excess = bar_count - num_bars_to_gen;
-        for (auto it = track_tokens.end(); it != track_tokens.begin() && excess > 0;) {
-            --it;
-            if (*it == "Bar_None") {
-                it = track_tokens.erase(it);
-                excess--;
-            }
-        }
-    }
-
-    // --- 5. Ensure ends with Track_End
     if (track_tokens.empty() || track_tokens.back() != "Track_End") {
-        track_tokens.push_back("Track_End");
+        std::cout << "[extractSampledContent] Track_End token absent, adding it token\n";
+        track_tokens.push_back("Track_End"); // ensure Track_End at the end
     }
 
     return track_tokens;

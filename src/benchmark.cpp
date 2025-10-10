@@ -113,9 +113,18 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+        std::string prompt_mode;
+    if (prompt_cfg.bar_infilling()) {
+        prompt_mode = "infill";
+    } else {
+        prompt_mode = "sample";
+    }
+
     std::string midiStr = argv[5];
     std::string tokenizerStr = argv[2];
     std::filesystem::path midiPath(midiStr);
+    std::string fname = midiPath.stem().string();
+    std::filesystem::path folder = midiPath.parent_path();
     std::filesystem::path tokenizerPath(tokenizerStr);
     std::unique_ptr<LibTok::MMM> tokenizer;
     //tokenizer->tokenizerConfig.saveToJson("configs/tokenizer_export.json");
@@ -189,7 +198,7 @@ int main(int argc, char** argv) {
             engine.resetProfiler();
 
             try {
-                mmm::inference::generate(
+                LibTok::ScoreType gen_score = mmm::inference::generate(
                     model,
                     *tokenizer,
                     prompt_cfg,
@@ -199,6 +208,11 @@ int main(int argc, char** argv) {
                 );
 
                 m.times.push_back(engine.totalTimeProfiler());
+
+                std::filesystem::path output_folder = folder / m.name;
+                std::filesystem::create_directories(output_folder);
+                std::filesystem::path output_file = output_folder / (fname + "_mode_" + prompt_mode + "_gen_" + std::to_string(pass) + ".mid");
+                LibTokUtils::saveMidiFromScore(gen_score, output_file);
             } catch (const std::exception& e) {
                 std::cerr << "Unable to generate. Error: " << e.what() << ". Passing...\n";
             }

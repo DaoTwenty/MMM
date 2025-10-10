@@ -49,7 +49,7 @@ std::vector<int64_t> SamplingEngine::generate(
     //for (int step = 0; step < config_.max_new_tokens; step++) {
     while (!stop_generating) {
 
-        if (verbose) std::cout << "[Generate] Step=" << step << "\n";
+        //if (verbose) std::cout << "[Generate] Step=" << step << "\n";
         
         if (profiler_) profiler_->start();
         std::vector<float> logits;
@@ -65,11 +65,12 @@ std::vector<int64_t> SamplingEngine::generate(
         next_token = config_.do_sample
             ? sampler_.sample(logits)
             : sampler_.argmax(logits);
-        if (verbose) std::cout << "[Generate] Sampled next token :: " << std::to_string(std::min(*next_token, static_cast<int64_t>(vocab_size_ - 1))) << "\n";
+        //if (verbose) std::cout << "[Generate] Sampled next token :: " << std::to_string(std::min(*next_token, static_cast<int64_t>(vocab_size_ - 1))) << "\n";
 
         if (*next_token >= vocab_size_) {
-            if (verbose) std::cerr << "[Generate] Sampled over vocab size (sampled " << *next_token << "), clipping to " << std::to_string(vocab_size_ - 1) << ".\n"; 
             *next_token = vocab_size_ - 1;
+            if (verbose) std::cerr << "[Generate] Sampled over vocab size (sampled " << *next_token << ")\n";
+            //throw std::runtime_error("[Generate] Sampled over vocab size (sampled " + std::to_string(*next_token) + ")");
         }
 
         if (next_token.has_value() && static_cast<int>(*next_token) == eos_token_id_) {

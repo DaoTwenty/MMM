@@ -1,5 +1,6 @@
 {
   "mode": "BarInfilling",
+  "context_length": 8,
   "config": {
     "0": [
       {

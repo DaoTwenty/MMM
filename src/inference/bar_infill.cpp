@@ -38,8 +38,6 @@ void infill_bars(
             if (verbose) std::cout << "[InfillBars] Reset LogitsProcessor\n";
             engine.updateProcessors("BarInfillStopLogitsProcessor.n_bars_to_infill", num_bars_to_infill);
             if (verbose) std::cout << "[InfillBars] Reset LogitsProcessor bar infill count\n";
-            engine.updateProcessors("BarInfillStopLogitsProcessor.n_attribute_controls", std::get<2>(subset).size());
-            if (verbose) std::cout << "[InfillBars] Reset LogitsProcessor attribute control count\n";
 
             if (model->is_cached()) {
                 if (verbose) std::cout << "[InfillBars] Resetting model cache\n";
@@ -77,8 +75,10 @@ void infill_bars(
 
             LibTok::TokSequence generated_seq({}, gen_ids, {}, {}, true);
 
-            tokenizer.complete_sequence(generated_seq);
             if (tokenizer.isTrained()) {
+                if (verbose) {
+                    std::cout << "[InfillBars] Decoding token ids after generation\n";
+                }
                 tokenizer.decodeTokenIds(generated_seq);
             }
 
@@ -201,6 +201,9 @@ std::pair<int,int> _adapt_prompt_for_infilling(
         if (i == track_idx) {
             input_tokens += seq_to_infill;
         } else {
+            if (tokenizer.isTrained()) {
+                tokenizer.encodeTokenIds(token_seq);
+            }
             auto bar_subseqs = token_seq[i].splitPerBars();
             int num_bars = bar_subseqs.size();
             int tokseq_len = token_seq[i].size();
@@ -248,83 +251,89 @@ std::vector<std::string> extractInfilledContent(
     bool verbose
 ) {
     std::vector<std::string> infill_tokens;
-
-    // collect indices of Bar_None after the FillBar_Start
-    std::vector<size_t> bidx;
-    for (size_t i = fillbar_start_idx + 1; i < tokens.size(); ++i) {
-        if (tokens[i] == "Bar_None") bidx.push_back(i);
-    }
-
-    if (bidx.empty()) {
-        if (verbose) {
-            std::cerr << "[InfillExtraction] No Bar_None found after FillBar_Start; "
-                         "falling back to " << num_bars_to_infill << " empty bars.\n";
-        }
-        // produce exactly num_bars_to_infill empty bars (represented as consecutive Bar_None tokens)
-        return std::vector<std::string>(num_bars_to_infill, std::string("Bar_None"));
-    }
-
-    bool last_is_bar_none = (!tokens.empty() && tokens.back() == "Bar_None");
-    // number of completed bars produced by the model:
-    // if last token is Bar_None, final Bar_None is a terminator -> completed bars = k-1
-    // otherwise completed bars = k
-    int k = static_cast<int>(bidx.size());
-    int generated_bars = last_is_bar_none ? (k - 1) : k;
-    if (generated_bars < 0) generated_bars = 0;
-
-    int produced_bars = std::min(num_bars_to_infill, generated_bars);
+    std::vector<std::vector<std::string>> bars;
 
     if (verbose) {
-        std::cout << "[InfillExtraction] Found " << k << " Bar_None tokens after FillBar_Start"
-                  << " (last_is_bar_none=" << last_is_bar_none << "), "
-                  << "generated_bars=" << generated_bars
-                  << ", will produce " << produced_bars << " filled bars (requested "
-                  << num_bars_to_infill << ").\n";
+        std::cout << "[InfillExtraction] Starting extraction after FillBar_Start idx="
+                  << fillbar_start_idx << ", num_bars_to_infill=" << num_bars_to_infill << "\n";
     }
 
-    // begin at first Bar_None
-    size_t idx_begin = bidx[0];
-    size_t idx_end = idx_begin; // exclusive
+    if (fillbar_start_idx >= tokens.size() - 1) {
+        if (verbose) std::cerr << "[InfillExtraction] No tokens after FillBar_Start.\n";
+        return std::vector<std::string>(num_bars_to_infill, "Bar_None");
+    }
 
-    if (produced_bars == 0) {
-        // Extract nothing, then append empty bars below
-        idx_end = idx_begin;
-    } else {
-        // Choose end index:
-        // - If the model ended with a terminating Bar_None (last_is_bar_none=true),
-        //   then the p-th bar's end boundary is at bidx[produced_bars] (exists because produced_bars <= k-1).
-        // - If not, and produced_bars < k, use bidx[produced_bars].
-        // - If not, and produced_bars == k, use tokens.size().
-        if (last_is_bar_none) {
-            // safe because produced_bars <= generated_bars = k-1 -> bidx[produced_bars] exists
-            idx_end = bidx[produced_bars];
-        } else {
-            if (produced_bars < k) idx_end = bidx[produced_bars];
-            else idx_end = tokens.size();
+    // ---------------------------------------------------------------------
+    // Parse bars sequentially
+    // ---------------------------------------------------------------------
+    std::vector<std::string> current_bar;
+    bool inside_bar = false;
+
+    for (size_t i = fillbar_start_idx + 1; i < tokens.size(); ++i) {
+        const auto& tok = tokens[i];
+
+        if (tok == "Bar_None") {
+            // If we're already inside a bar, that means this starts a new one.
+            if (inside_bar) {
+                bars.push_back(std::move(current_bar));
+                current_bar.clear();
+            }
+            inside_bar = true;
+            current_bar.push_back(tok);
+        } 
+        else if (tok == "FillBar_End") {
+            // End the current bar and finish.
+            if (inside_bar) {
+                current_bar.push_back(tok);
+                bars.push_back(std::move(current_bar));
+                current_bar.clear();
+                inside_bar = false;
+            }
+            if (verbose) std::cout << "  [InfillExtraction] FillBar_End reached.\n";
+            break;
+        } 
+        else {
+            // Regular token — append to current bar if we’re inside one.
+            if (inside_bar) current_bar.push_back(tok);
         }
     }
 
-    // Copy the token range [idx_begin, idx_end)
-    if (idx_begin < idx_end && idx_end <= tokens.size()) {
-        infill_tokens.insert(infill_tokens.end(), tokens.begin() + idx_begin, tokens.begin() + idx_end);
+    // Add any trailing bar that didn't end in FillBar_End
+    if (inside_bar && !current_bar.empty()) {
+        bars.push_back(std::move(current_bar));
     }
 
+    if (verbose) {
+        std::cout << "[InfillExtraction] Found " << bars.size() << " bar(s) after FillBar_Start.\n";
+    }
+
+    // ---------------------------------------------------------------------
+    // Handle insufficient/excess bars
+    // ---------------------------------------------------------------------
+    int generated_bars = static_cast<int>(bars.size());
+    int produced_bars = std::min(num_bars_to_infill, generated_bars);
+
+    if (produced_bars < generated_bars) {
+        if (verbose) std::cout << "[InfillExtraction] Model generated too many bars!\n";
+    } else if (produced_bars > generated_bars) {
+        if (verbose) std::cout << "[InfillExtraction] Model generated too few barss!\n";
+    }
+
+    // Take the first `produced_bars`
+    for (int i = 0; i < produced_bars; ++i) {
+        infill_tokens.insert(infill_tokens.end(), bars[i].begin(), bars[i].end());
+    }
+
+    // If missing, append empty bars
     int missing = num_bars_to_infill - produced_bars;
     if (missing > 0) {
         if (verbose) {
-            std::cerr << "[InfillExtraction] Only " << produced_bars << " bars produced; "
-                      << "appending " << missing << " empty Bar_None(s).\n";
+            std::cerr << "[InfillExtraction] Only " << produced_bars
+                      << " bars produced; appending " << missing
+                      << " empty Bar_None(s).\n";
         }
-        // Append `missing` Bar_None tokens (consecutive Bar_None = empty bars)
-        for (int i = 0; i < missing; ++i) infill_tokens.push_back("Bar_None");
-    }
-
-    if (!last_is_bar_none) {
-        // If the model didn't end with Bar_None, that likely means it stopped for another reason (max_new_tokens).
-        // Warn the user so they can adjust generation length if desired.
-        if (verbose) {
-            std::cerr << "[InfillExtraction] Warning: model output did not end with a final Bar_None; "
-                      << "the trailing content (if any) is preserved as the last bar's content.\n";
+        for (int i = 0; i < missing; ++i) {
+            infill_tokens.push_back("Bar_None");
         }
     }
 

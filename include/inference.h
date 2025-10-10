@@ -1,8 +1,8 @@
 #pragma once
 
+#include "promptconfig.h"
 #include "model.h"
 #include "engine.h"
-#include "promptconfig.h"
 #include "mmm.h"
 #include "tok_sequence.h"
 #include "utils.h"
@@ -80,7 +80,7 @@ int _adapt_prompt_for_sampling(
 );
 
 std::vector<std::string> extractSampledContent(
-    const std::vector<std::string>& tokens,
+    std::vector<std::string>& tokens,
     size_t last_track_start_idx,
     int num_bars_to_gen,
     int num_tracks_before,

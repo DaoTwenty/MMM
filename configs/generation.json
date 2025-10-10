@@ -1,7 +1,7 @@
 {
     "do_sample": true,
     "max_new_tokens": 128,
-    "min_new_tokens": 0,
+    "attempts":4,
     "pad_token_id": 0,
     "repetition_penalty": 1.0,
     "temperature": 1.0,

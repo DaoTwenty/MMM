@@ -21,7 +21,7 @@ mmm::sampling::SamplingEngine createEngine(
     
     if (seed > 0) { 
         if (verbose) std::cout << "[Engine] Using fixed seed\n"; 
-        sampler = mmm::sampling::Sampler(static_cast<std::mt19937::result_type>(seed)); 
+        sampler = mmm::sampling::Sampler(seed); 
     } 
     
     auto vocab_var = tokenizer.getVocab(); 
@@ -33,8 +33,15 @@ mmm::sampling::SamplingEngine createEngine(
     auto& vocab = *vocab_ptr;
 
     if (verbose) std::cout << "[Engine] Vocab loaded. Size=" << vocab.size() << "\n"; 
+
+    mmm::utils::SpecialTokens special_tokens(vocab);
     
-    mmm::sampling::LogitsProcessorList processors = mmm::utils::createProcessorListFromConfig( config, vocab["EOS_None"], vocab["FillBar_Start"], vocab["Bar_None"], vocab["Track_Start"], vocab["Track_End"] ); 
+    mmm::sampling::LogitsProcessorList processors = mmm::utils::createProcessorListFromConfig( config, special_tokens); 
+
+    if (verbose) {
+        std::cout << "[Engine] - ";
+        special_tokens.print();
+    }
 
     if (verbose) std::cout << "[Engine] Processors created\n"; 
     
@@ -60,60 +67,82 @@ LibTok::ScoreType generate(
     LibTok::ScoreType &score,
     bool verbose
 ) {
-
     if (verbose) std::cout << "[Generate] Starting generation.\n";
 
-    auto tokens = tokenizer.encode(score, true, false, {}, false);
-    if (verbose) std::cout << "[Generate] Encoding MIDI file.\n";
-    std::vector<LibTok::TokSequence> token_seq = std::get<std::vector<LibTok::TokSequence>>(tokens);
+    int attempts = engine.getConfig().attempts;
+    if (attempts <= 0) attempts = 1;  // safety default
+    if (verbose) std::cout << "[Generate] Number of attempts = " << attempts << "\n";
 
-    _preprocess_token_sequence_vector(token_seq, true, verbose);
+    for (int attempt = 1; attempt <= attempts; ++attempt) {
+        if (verbose) std::cout << "[Generate] Attempt " << attempt << " / " << attempts << "\n";
 
-    if (cfg.bar_infilling()) {
-        if (cfg.empty()) {
-            throw std::invalid_argument("Bar Infilling mode requested but no bar subset provided.");
-        }
-        if (verbose) std::cout << "[Generate] Running bar infilling\n";
-        if (auto barCfg = std::get_if<mmm::inference::BarInfilling>(&cfg.mode)) {
-            infill_bars(token_seq, tokenizer, *barCfg, model, engine, cfg.context_length, verbose);
-        } else {
-            throw std::runtime_error("[Generate] Given config does not hold BarInfilling variant");
-        }
+        try {
+            auto tokens = tokenizer.encodeWithoutConcatenation(score, false, false, {});
+            if (verbose) std::cout << "[Generate] Encoding MIDI file.\n";
 
-    } else if (cfg.track_sampling()) {
-        if (cfg.empty()) {
-            throw std::invalid_argument("Track sampling mode requested but no track provided.");
-        }
-        if (verbose) std::cout << "[Generate] Running track sampling\n";
-        if (auto barCfg = std::get_if<mmm::inference::TrackSampling>(&cfg.mode)) {
-            sample_tracks(token_seq, tokenizer, *barCfg, model, engine, cfg.context_length, verbose);
-        } else {
-            throw std::runtime_error("[Generate] Given config does not hold TrackSampling variant");
-        }
-    } else {
+            std::vector<LibTok::TokSequence> token_seq =
+                std::get<std::vector<LibTok::TokSequence>>(tokens);
 
-        if (verbose) std::cout << "[Generate] No mode matched, returning input score\n";
-        return score;
+            _preprocess_token_sequence_vector(token_seq, true, verbose);
+
+            if (cfg.bar_infilling()) {
+                if (cfg.empty()) {
+                    throw std::invalid_argument("Bar Infilling mode requested but no bar subset provided.");
+                }
+                if (verbose) std::cout << "[Generate] Running bar infilling\n";
+                if (auto barCfg = std::get_if<mmm::inference::BarInfilling>(&cfg.mode)) {
+                    infill_bars(token_seq, tokenizer, *barCfg, model, engine, cfg.context_length, verbose);
+                } else {
+                    throw std::runtime_error("[Generate] Given config does not hold BarInfilling variant");
+                }
+
+            } else if (cfg.track_sampling()) {
+                if (cfg.empty()) {
+                    throw std::invalid_argument("Track sampling mode requested but no track provided.");
+                }
+                if (verbose) std::cout << "[Generate] Running track sampling\n";
+                if (auto trackCfg = std::get_if<mmm::inference::TrackSampling>(&cfg.mode)) {
+                    sample_tracks(token_seq, tokenizer, *trackCfg, model, engine, cfg.context_length, verbose);
+                } else {
+                    throw std::runtime_error("[Generate] Given config does not hold TrackSampling variant");
+                }
+            } else {
+                if (verbose) std::cout << "[Generate] No mode matched, returning input score\n";
+                return score;
+            }
+
+            // Flatten token sequences
+            std::vector<int> res;
+            size_t total_size = 0;
+            for (const auto& seq : token_seq) total_size += seq.ids.size();
+            res.reserve(total_size);
+
+            for (const auto& seq : token_seq) {
+                res.insert(res.end(), seq.ids.begin(), seq.ids.end());
+            }
+
+            if (verbose) {
+                std::cout << "[Generate] Total tokens to decode = " << res.size() << "\n";
+            }
+
+            // Try decoding into a score
+            LibTok::ScoreType result = tokenizer.decode(res);
+
+            if (verbose) std::cout << "[Generate] Generation complete on attempt " << attempt << "\n";
+            return result;
+        } 
+        catch (const std::exception& e) {
+            std::cerr << "[Generate] Attempt " << attempt << " failed: " << e.what() << "\n";
+            if (attempt < attempts) {
+                std::cerr << "[Generate] Retrying...\n";
+            } else {
+                std::cerr << "[Generate] All attempts failed.\n";
+                throw; // rethrow on last attempt
+            }
+        }
     }
 
-    LibTok::ScoreType result;
-
-    std::vector<int> res;
-    size_t total_size = 0;
-    for (const auto& seq : token_seq) total_size += seq.ids.size();
-    res.reserve(total_size);
-
-    for (const auto& seq : token_seq) {
-        res.insert(res.end(), seq.ids.begin(), seq.ids.end());
-    }
-    try {
-        result = tokenizer.decode(res);
-    } catch (const std::exception& e) {
-        std::cerr << "[Generate] Error in decode: " << e.what() << "\n";
-        throw;
-    }
-    if (verbose) std::cout << "[Generate] Generation complete\n";
-    return result;
+    throw std::runtime_error("[Generate] Reached unreachable state (no successful attempts)");
 }
 
 void _preprocess_token_sequence_vector(
@@ -124,11 +153,17 @@ void _preprocess_token_sequence_vector(
     if (verbose) {
         std::cout << "[Preprocess] Preprocessing token sequence\n";
     }
-
     // --- 1. Split per bars for each track
     std::vector<std::vector<LibTok::TokSequence>> track_bars(token_seq.size());
     for (size_t track = 0; track < token_seq.size(); ++track) {
-        track_bars[track] = token_seq[track].splitPerBars();
+        if (verbose) {
+            std::cout << "  [Track " << track << "] size=" << token_seq[track].size()
+                    << " tokens before split (tokens=" << token_seq[track].tokens.size() << ", ids=" << token_seq[track].ids.size() << ").\n";
+        }
+
+        auto bars = token_seq[track].splitPerBars();
+
+        track_bars[track] = std::move(bars);
     }
 
     // --- 2. Find min and max number of bars

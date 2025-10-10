@@ -31,7 +31,9 @@ mkdir -p "$BUILD_DIR"
 if [[ ! -f "$BUILD_DIR/CMakeCache.txt" ]]; then
     echo "Running initial CMake configuration..."
     cmake -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DBUILD_PYBIND=ON \
+        -DBUILD_BENCHMARK=ON
 fi
 
 # Build incrementally

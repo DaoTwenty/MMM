@@ -1,8 +1,7 @@
 {
   "mode": "TrackSampling",
+  "context_length": 8,
   "config": [
-    { "program": 10, "controls": [] },
-    { "program": 25, "controls": [] },
-    { "program": 33, "controls": [] }
+    { "program": 18, "controls": [] }
   ]
 }
