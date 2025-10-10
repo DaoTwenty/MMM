@@ -25,32 +25,17 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(LibTok)
 
 # ---- ONNX Runtime ----
-if (APPLE)
-    set(DEFAULT_ONNXRUNTIME_ROOT "$ENV{HOME}/onnxruntime-osx-x86_64-1.22.0")
-elseif (UNIX)
-    set(DEFAULT_ONNXRUNTIME_ROOT "$ENV{HOME}/onnxruntime-linux-x64-1.22.1")
-endif()
-set(ONNXRUNTIME_ROOTDIR ${DEFAULT_ONNXRUNTIME_ROOT} CACHE PATH "Path to ONNX Runtime installation")
-set(ONNXRUNTIME_ROOTDIR_PIP "${CMAKE_CURRENT_SOURCE_DIR}/.venv/lib/python3.11/site-packages/onnxruntime/capi")
-
-if (NOT EXISTS "${ONNXRUNTIME_ROOTDIR}/include/onnxruntime_cxx_api.h")
-    message(FATAL_ERROR "ONNXRuntime not found at ${ONNXRUNTIME_ROOTDIR}. Please set ONNXRUNTIME_ROOTDIR.")
-endif()
-
-include_directories("${ONNXRUNTIME_ROOTDIR}/include")
-link_directories("${ONNXRUNTIME_ROOTDIR_PIP}")
-
-file(GLOB ONNXRUNTIME_LIBRARIES "${ONNXRUNTIME_ROOTDIR_PIP}/libonnxruntime*.dylib")
-if (NOT ONNXRUNTIME_LIBRARIES)
-    message(FATAL_ERROR "Could not find libonnxruntime*.dylib in ${ONNXRUNTIME_ROOTDIR_PIP}")
-endif()
+include(libs/onnxruntime.cmake)
 
 # ---- LibTorch ----
-set(Torch_DIR "$ENV{HOME}/libtorch/share/cmake/Torch" CACHE PATH "Path to LibTorch cmake folder")
+set(DEFAULT_LIBTORCH_ROOT "$ENV{HOME}/libs/libtorch")
+set(LIBTORCH_ROOTDIR ${DEFAULT_LIBTORCH_ROOT} CACHE PATH "Path to LibTorch installation")
+set(CMAKE_PREFIX_PATH ${LIBTORCH_ROOTDIR})
+message(STATUS "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}")
 find_package(Torch REQUIRED)
-
-# ---- JSON Library ----
-find_package(nlohmann_json 3.2.0 REQUIRED)
+message(STATUS "Torch_DIR: ${Torch_DIR}")
+message(STATUS "Torch include dirs: ${TORCH_INCLUDE_DIRS}")
+message(STATUS "Torch libraries: ${TORCH_LIBRARIES}")
 
 if (BUILD_BENCHMARK)
     # ---- Sources ----
