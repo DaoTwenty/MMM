@@ -33,7 +33,9 @@ if [[ ! -f "$BUILD_DIR/CMakeCache.txt" ]]; then
     cmake -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DBUILD_PYBIND=ON \
-        -DBUILD_BENCHMARK=ON
+        -DBUILD_BENCHMARK=ON \
+        -DUSE_ONNX=ON \
+        -DUSE_TORCH=OFF
 fi
 
 # Build incrementally

@@ -1,6 +1,6 @@
 {
   "num_passes": 20,
   "models": [
-    { "name": "Mistral ONNX Default", "type": "ONNX", "path": "../models/MISTRAL_123000_ONNX/model.onnx"}  
+    { "name": "Mistral ONNX Default", "path": "../models/MISTRAL_123000_ONNX/model.onnx"}  
   ]
 }

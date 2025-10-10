@@ -2,25 +2,26 @@
 
 namespace mmm {
 
+#if defined(USE_ONNX)
+// ============================================================================
+// ONNX Runtime backend
+// ============================================================================
 static Ort::SessionOptions make_options(bool useCoreML) {
     Ort::SessionOptions opts;
-    //opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
-    //opts.SetLogSeverityLevel(0);  // verbose
-    //opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_DISABLE_ALL);
-    //opts.SetIntraOpNumThreads(std::thread::hardware_concurrency());
     opts.SetInterOpNumThreads(1);
-    //opts.SetExecutionMode(ExecutionMode::ORT_PARALLEL);
     opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_DISABLE_ALL);
-    opts.DisableMemPattern();               // session_options.DisableMemPattern();  (C API: OrtSessionOptionsDisableMemPattern)
+    opts.DisableMemPattern();
     opts.SetExecutionMode(ExecutionMode::ORT_SEQUENTIAL);
-    std::unordered_map<std::string, std::string> provider_options;
+
     if (useCoreML) {
+        std::unordered_map<std::string, std::string> provider_options;
         provider_options["ModelFormat"] = "MLProgram";
         provider_options["MLComputeUnits"] = "ALL";
         provider_options["RequireStaticInputShapes"] = "0";
         provider_options["EnableOnSubgraphs"] = "0";
         opts.AppendExecutionProvider("CoreML", provider_options);
     }
+
     return opts;
 }
 
@@ -33,399 +34,212 @@ CausalLM::CausalLM(const std::string& model_path, int vocab_size, bool coreML)
 
 CausalLMCached::CausalLMCached(const std::string& model_path, int vocab_size, bool coreML)
     : CausalLM(model_path, vocab_size, coreML) {
-        Ort::AllocatorWithDefaultOptions allocator;
+    Ort::AllocatorWithDefaultOptions allocator;
 
-        // Inspect inputs
-        size_t num_inputs = session.GetInputCount();
-        for (size_t i = 0; i < num_inputs; i++) {
-            Ort::AllocatedStringPtr input_name_ptr = session.GetInputNameAllocated(i, allocator);
-            std::string iname(input_name_ptr.get());
+    // Inspect inputs
+    size_t num_inputs = session.GetInputCount();
+    for (size_t i = 0; i < num_inputs; i++) {
+        std::string iname = session.GetInputNameAllocated(i, allocator).get();
+        if (iname == "input_ids" || iname == "attention_mask" || iname == "position_ids")
+            main_input_names.push_back(strdup(iname.c_str()));
+        else if (iname.find("past") != std::string::npos)
+            past_input_names.push_back(strdup(iname.c_str()));
+    }
 
-            if (iname == "input_ids" ||
-                iname == "attention_mask" ||
-                iname == "position_ids") {
-                if (!iname.empty())
-                    main_input_names.push_back(strdup(iname.c_str()));
-            } else if (iname.find("past") != std::string::npos) {
-                if (!iname.empty())
-                    past_input_names.push_back(strdup(iname.c_str()));
-            }
-        }
-
-        // Inspect outputs
-        size_t num_outputs = session.GetOutputCount();
-        for (size_t i = 0; i < num_outputs; i++) {
-            Ort::AllocatedStringPtr output_name_ptr = session.GetOutputNameAllocated(i, allocator);
-            std::string oname(output_name_ptr.get());
-
-            if (oname == "logits") {
-                logits_output_name = strdup(oname.c_str());
-            } else if (oname.find("present") != std::string::npos ||
-                       oname.find("past") != std::string::npos) {
-                past_output_names.push_back(strdup(oname.c_str()));
-            }
-        }
+    // Inspect outputs
+    size_t num_outputs = session.GetOutputCount();
+    for (size_t i = 0; i < num_outputs; i++) {
+        std::string oname = session.GetOutputNameAllocated(i, allocator).get();
+        if (oname == "logits")
+            logits_output_name = strdup(oname.c_str());
+        else if (oname.find("present") != std::string::npos ||
+                 oname.find("past") != std::string::npos)
+            past_output_names.push_back(strdup(oname.c_str()));
+    }
 }
 
-CausalLMTorch::CausalLMTorch(const std::string& model_path, int vocab_size)
-    : model(torch::jit::load(model_path)),  // initialize the reference here
-      vocab_size(vocab_size) {
-}
-
-CausalLMTorchCached::CausalLMTorchCached(const std::string& model_path, int vocab_size)
-    : CausalLMTorch(model_path, vocab_size) 
-    {}
-
-void CausalLMCached::reset_cache() {
-    past_key_values.clear();
-}
-
-void CausalLMTorchCached::reset_cache() {
-    past_key_values.clear();
-}
+void CausalLMCached::reset_cache() { past_key_values.clear(); }
 
 std::vector<float> CausalLMCached::forward(const std::vector<int64_t>& input_ids_raw) {
     const size_t batch_size = 1;
     const size_t seq_len = input_ids_raw.size();
 
-    // ---------------------------------------------------------------------
-    // 1. Convert input_ids to tensor (model expects int64)
-    // ---------------------------------------------------------------------
-    std::vector<int64_t> input_ids(input_ids_raw.begin(), input_ids_raw.end());
-    std::vector<int64_t> input_shape = {
-        static_cast<int64_t>(batch_size),
-        static_cast<int64_t>(seq_len)
-    };
-
+    // 1. Convert to tensor
+    std::vector<int64_t> input_shape = {1, static_cast<int64_t>(seq_len)};
     Ort::Value input_ids_tensor = Ort::Value::CreateTensor<int64_t>(
-        memory_info,
-        input_ids.data(), input_ids.size(),
-        input_shape.data(), input_shape.size()
-    );
+        memory_info, const_cast<int64_t*>(input_ids_raw.data()),
+        input_ids_raw.size(), input_shape.data(), input_shape.size());
 
-    // ---------------------------------------------------------------------
-    // 2. Prepare past_key_values
-    //     Shape per model: [2, batch, num_heads, past_seq_len, head_size]
-    // ---------------------------------------------------------------------
+    // 2. Past key values
     int64_t past_len = 0;
     if (!past_key_values.empty()) {
         const auto& past_shape = past_key_values[0].GetTensorTypeAndShapeInfo().GetShape();
-        if (past_shape.size() >= 4)
-            past_len = past_shape[3];
+        if (past_shape.size() >= 4) past_len = past_shape[3];
     } else {
-        // Initialize empty past tensors on first call
+        constexpr int64_t num_heads = 8, head_size = 64;
         past_key_values.clear();
-        constexpr int64_t num_heads = 8;
-        constexpr int64_t head_size = 64;
-
         for (size_t i = 0; i < past_input_names.size(); ++i) {
-            std::vector<int64_t> zero_shape = {
-                2, static_cast<int64_t>(batch_size), num_heads, 0, head_size
-            };
+            std::vector<int64_t> shape = {2, 1, num_heads, 0, head_size};
             Ort::Value empty_tensor = Ort::Value::CreateTensor<float>(
-                memory_info, nullptr, 0, zero_shape.data(), zero_shape.size()
-            );
+                memory_info, nullptr, 0, shape.data(), shape.size());
             past_key_values.push_back(std::move(empty_tensor));
         }
     }
 
-    // ---------------------------------------------------------------------
-    // 3. Build position_ids tensor (if model expects it)
-    // ---------------------------------------------------------------------
-    Ort::Value pos_tensor(nullptr);
-    if (has_input("position_ids")) {
-        std::vector<int64_t> position_ids(seq_len);
-        constexpr int64_t MAX_POS = 8192;
-
-        for (size_t i = 0; i < seq_len; ++i) {
-            int64_t pos = past_len + static_cast<int64_t>(i);
-            position_ids[i] = std::min(pos, MAX_POS - 1);
-        }
-
-        pos_tensor = Ort::Value::CreateTensor<int64_t>(
-            memory_info,
-            position_ids.data(), position_ids.size(),
-            input_shape.data(), input_shape.size()
-        );
-    }
-
-    // ---------------------------------------------------------------------
-    // 4. Build attention_mask tensor (if model expects it)
-    //     Shape: [batch, past_len + seq_len]
-    // ---------------------------------------------------------------------
-    Ort::Value mask_tensor(nullptr);
-    if (has_input("attention_mask")) {
-        const int64_t total_len = past_len + static_cast<int64_t>(seq_len);
-        std::vector<int64_t> attention_mask(total_len, 1);
-        std::vector<int64_t> mask_shape = {static_cast<int64_t>(batch_size), total_len};
-
-        mask_tensor = Ort::Value::CreateTensor<int64_t>(
-            memory_info,
-            attention_mask.data(), attention_mask.size(),
-            mask_shape.data(), mask_shape.size()
-        );
-    }
-
-    // ---------------------------------------------------------------------
-    // 5. Build input names and run_inputs (match Netron order)
-    //     Order: input_ids, position_ids?, attention_mask?, past_*
-    // ---------------------------------------------------------------------
-    std::vector<const char*> input_names;
+    // 3. Optional tensors
+    std::vector<const char*> input_names{"input_ids"};
     std::vector<Ort::Value> run_inputs;
-
-    input_names.push_back("input_ids");
     run_inputs.push_back(std::move(input_ids_tensor));
 
+    auto make_tensor = [&](const std::string& name, std::vector<int64_t>& data,
+                           const std::vector<int64_t>& shape) {
+        if (has_input(name)) {
+            input_names.push_back(name.c_str());
+            run_inputs.push_back(Ort::Value::CreateTensor<int64_t>(
+                memory_info, data.data(), data.size(), shape.data(), shape.size()));
+        }
+    };
+
+    // Position IDs
     if (has_input("position_ids")) {
-        input_names.push_back("position_ids");
-        run_inputs.push_back(std::move(pos_tensor));
+        std::vector<int64_t> pos(seq_len);
+        for (size_t i = 0; i < seq_len; ++i) pos[i] = past_len + i;
+        make_tensor("position_ids", pos, input_shape);
     }
 
+    // Attention mask
     if (has_input("attention_mask")) {
-        input_names.push_back("attention_mask");
-        run_inputs.push_back(std::move(mask_tensor));
+        const int64_t total_len = past_len + seq_len;
+        std::vector<int64_t> mask(total_len, 1);
+        std::vector<int64_t> mask_shape = {1, total_len};
+        make_tensor("attention_mask", mask, mask_shape);
     }
 
+    // Past
     for (size_t i = 0; i < past_input_names.size(); ++i) {
         input_names.push_back(past_input_names[i]);
         run_inputs.push_back(std::move(past_key_values[i]));
     }
 
-    // ---------------------------------------------------------------------
-    // 6. Build output names: logits + present_0..present_n
-    // ---------------------------------------------------------------------
-    std::vector<const char*> output_names;
-    output_names.push_back(logits_output_name);
+    // 4. Outputs
+    std::vector<const char*> output_names{logits_output_name};
     output_names.insert(output_names.end(), past_output_names.begin(), past_output_names.end());
 
-    // ---------------------------------------------------------------------
-    // 7. Run inference
-    // ---------------------------------------------------------------------
     auto outputs = session.Run(
-        Ort::RunOptions{nullptr},
-        input_names.data(), run_inputs.data(), run_inputs.size(),
-        output_names.data(), output_names.size()
-    );
+        Ort::RunOptions{nullptr}, input_names.data(), run_inputs.data(),
+        run_inputs.size(), output_names.data(), output_names.size());
 
-    // ---------------------------------------------------------------------
-    // 8. Update past_key_values cache from outputs
-    //     outputs[0] = logits, outputs[1..] = new past tensors
-    // ---------------------------------------------------------------------
+    // 5. Update cache
     past_key_values.clear();
     for (size_t i = 1; i < outputs.size(); ++i)
         past_key_values.push_back(std::move(outputs[i]));
 
-    // ---------------------------------------------------------------------
-    // 9. Extract logits tensor (use only last token’s logits)
-    // ---------------------------------------------------------------------
-    std::vector<float> logits;
-    {
-        Ort::Value& logits_tensor = outputs[0];
-        float* logits_ptr = logits_tensor.GetTensorMutableData<float>();
-        const auto shape_info = logits_tensor.GetTensorTypeAndShapeInfo();
-        const auto shape = shape_info.GetShape();
+    // 6. Extract last token logits
+    Ort::Value& logits_tensor = outputs[0];
+    float* data = logits_tensor.GetTensorMutableData<float>();
+    auto shape = logits_tensor.GetTensorTypeAndShapeInfo().GetShape();
+    int64_t vocab = shape.back();
+    int64_t offset = (shape.size() == 3) ? (shape[1] - 1) * vocab : 0;
 
-        // Print debug info
-        std::cout << "[Debug] logits_tensor shape: [";
-        for (auto d : shape) std::cout << d << " ";
-        std::cout << "] type=" << shape_info.GetElementType() << "\n";
-        std::cout << "[Debug] past_len = " << past_len << ", seq_len = " << seq_len << "\n";
-
-        if (shape.size() == 3) {
-            const int64_t batch = shape[0];
-            const int64_t seq_len_actual = shape[1];
-            const int64_t vocab_size = shape[2];
-
-            std::cout << "[Debug] batch=" << batch 
-                    << ", seq_len_actual=" << seq_len_actual 
-                    << ", vocab_size=" << vocab_size << "\n";
-
-            const float* last_logits_ptr = logits_ptr + (seq_len_actual - 1) * vocab_size;
-            logits.assign(last_logits_ptr, last_logits_ptr + vocab_size);
-
-            std::cout << "[Debug] Extracted last token logits at offset " 
-                    << (seq_len_actual - 1) * vocab_size << "\n";
-
-        } else if (shape.size() == 2) {
-            const int64_t batch = shape[0];
-            const int64_t vocab_size = shape[1];
-
-            std::cout << "[Debug] batch=" << batch << ", vocab_size=" << vocab_size << "\n";
-            logits.assign(logits_ptr, logits_ptr + vocab_size);
-
-        } else {
-            // fallback: copy everything
-            const size_t num_elements = shape_info.GetElementCount();
-            std::cout << "[Debug] Unexpected logits shape, copying all " 
-                    << num_elements << " elements\n";
-            logits.assign(logits_ptr, logits_ptr + num_elements);
-        }
-
-        std::cout << "[Debug] Final logits.size() = " << logits.size() << "\n";
-    }
-
-
-    return logits;
+    return std::vector<float>(data + offset, data + offset + vocab);
 }
-
 
 std::vector<float> CausalLM::forward(const std::vector<int64_t>& input_ids) {
-    std::vector<int64_t> input_shape = {1, (int64_t)input_ids.size()};
+    std::vector<int64_t> shape = {1, static_cast<int64_t>(input_ids.size())};
 
-    // 1. input_ids tensor
-    Ort::Value input_ids_tensor = Ort::Value::CreateTensor<int64_t>(
-        memory_info,
-        const_cast<int64_t*>(input_ids.data()), input_ids.size(),
-        input_shape.data(), input_shape.size());
+    // Inputs
+    Ort::Value ids = Ort::Value::CreateTensor<int64_t>(
+        memory_info, const_cast<int64_t*>(input_ids.data()),
+        input_ids.size(), shape.data(), shape.size());
 
-    // 2. attention_mask tensor (all ones if no padding)
-    std::vector<int64_t> attention_mask(input_ids.size(), 1);
-    Ort::Value attention_mask_tensor = Ort::Value::CreateTensor<int64_t>(
-        memory_info,
-        attention_mask.data(), attention_mask.size(),
-        input_shape.data(), input_shape.size());
+    std::vector<int64_t> mask(input_ids.size(), 1);
+    Ort::Value am = Ort::Value::CreateTensor<int64_t>(
+        memory_info, mask.data(), mask.size(), shape.data(), shape.size());
 
-    // 3. position_ids tensor
-    std::vector<int64_t> position_ids(input_ids.size());
-    for (size_t i = 0; i < input_ids.size(); ++i) position_ids[i] = i;
-    Ort::Value position_ids_tensor = Ort::Value::CreateTensor<int64_t>(
-        memory_info,
-        position_ids.data(), position_ids.size(),
-        input_shape.data(), input_shape.size());
+    std::vector<int64_t> pos(input_ids.size());
+    std::iota(pos.begin(), pos.end(), 0);
+    Ort::Value pid = Ort::Value::CreateTensor<int64_t>(
+        memory_info, pos.data(), pos.size(), shape.data(), shape.size());
 
-    // Names
-    const char* input_names[] = {"input_ids", "attention_mask", "position_ids"};
+    const char* in_names[] = {"input_ids", "attention_mask", "position_ids"};
+    const char* out_names[] = {"logits"};
 
-    // Run session
-    const char* output_names[] = {"logits"};
-    
-    std::vector<Ort::Value> input_tensors;
-    input_tensors.push_back(std::move(input_ids_tensor));
-    input_tensors.push_back(std::move(attention_mask_tensor));
-    input_tensors.push_back(std::move(position_ids_tensor));
+    std::vector<Ort::Value> ins;
+    ins.push_back(std::move(ids));
+    ins.push_back(std::move(am));
+    ins.push_back(std::move(pid));
 
-    auto output_tensors = session.Run(
-        Ort::RunOptions{nullptr},
-        input_names, input_tensors.data(), input_tensors.size(),
-        output_names, 1);
+    auto outs = session.Run(Ort::RunOptions{nullptr}, in_names, ins.data(),
+                            ins.size(), out_names, 1);
 
-    // Extract last-token logits
-    float* logits_ptr = output_tensors.front().GetTensorMutableData<float>();
-    size_t seq_len = input_ids.size();
-    return std::vector<float>(logits_ptr + (seq_len - 1) * vocab_size,
-                            logits_ptr + seq_len * vocab_size);
-    
+    float* logits = outs[0].GetTensorMutableData<float>();
+    const size_t len = input_ids.size();
+    return std::vector<float>(logits + (len - 1) * vocab_size,
+                              logits + len * vocab_size);
 }
 
-std::vector<float> CausalLMTorch::forward(const std::vector<int64_t>& input_ids) {
+#elif defined(USE_TORCH)
+// ============================================================================
+// Torch backend
+// ============================================================================
+CausalLM::CausalLM(const std::string& model_path, int vocab_size)
+    : model(torch::jit::load(model_path)), vocab_size(vocab_size) {}
+
+std::vector<float> CausalLM::forward(const std::vector<int64_t>& input_ids) {
     torch::NoGradGuard no_grad;
+    const int64_t seq_len = input_ids.size();
 
-    int64_t seq_len = static_cast<int64_t>(input_ids.size());
-    auto device = torch::kCPU; // or torch::kCUDA
+    auto ids = torch::from_blob((void*)input_ids.data(), {1, seq_len}, torch::kInt64).clone();
+    auto mask = torch::ones({1, seq_len}, torch::kInt64);
 
-    // Build tensors (clone to own memory)
-    torch::Tensor input_ids_tensor = torch::from_blob(
-        const_cast<int64_t*>(input_ids.data()), {1, seq_len}, torch::kInt64).clone().to(device);
-    torch::Tensor attention_mask_tensor = torch::ones({1, seq_len}, torch::kInt64).to(device);
+    auto out = model.forward({ids, mask}).toTuple();
+    torch::Tensor logits = out->elements()[0].toTensor().index({0, seq_len - 1});
 
-    // Prepare inputs
-    std::vector<torch::jit::IValue> inputs;
-    inputs.push_back(input_ids_tensor);
-    inputs.push_back(attention_mask_tensor);
-
-    // Call model
-    torch::IValue output_iv = model.forward(inputs);
-    auto output_tuple = output_iv.toTuple();
-
-    // Extract logits: shape [1, seq_len, vocab_size]
-    torch::Tensor logits_tensor = output_tuple->elements()[0].toTensor();
-
-    // ✅ Select only last token logits: shape [vocab_size]
-    torch::Tensor last_logits = logits_tensor.index({0, seq_len - 1});
-
-    // Copy to std::vector<float>
-    std::vector<float> logits(last_logits.numel());
-    std::memcpy(
-        logits.data(),
-        last_logits.data_ptr<float>(),
-        last_logits.numel() * sizeof(float)
-    );
-
-    return logits;
+    std::vector<float> result(logits.numel());
+    std::memcpy(result.data(), logits.data_ptr<float>(), result.size() * sizeof(float));
+    return result;
 }
 
+CausalLMCached::CausalLMCached(const std::string& model_path, int vocab_size)
+    : CausalLM(model_path, vocab_size) {}
 
+void CausalLMCached::reset_cache() { past_key_values.clear(); }
 
-std::vector<float> CausalLMTorchCached::forward(const std::vector<int64_t>& input_ids_vec) {
+std::vector<float> CausalLMCached::forward(const std::vector<int64_t>& input_ids_vec) {
     torch::NoGradGuard no_grad;
-    auto device = torch::kCPU; // change to torch::kCUDA if needed
+    const int64_t seq_len = input_ids_vec.size();
+    const int batch = 1, num_layers = 8, n_head = 8, head_dim = 64;
 
-    const int num_layers = 8;
-    const int n_head = 8;
-    const int head_dim = 64;
-    const int batch_size = 1;
-
-    int64_t seq_len = static_cast<int64_t>(input_ids_vec.size());
-
-    // 1) Build input_ids tensor
-    torch::Tensor input_ids = torch::from_blob(
-        const_cast<int64_t*>(input_ids_vec.data()), {batch_size, seq_len}, torch::kInt64
-    ).clone().to(device);
-
-    // 2) Determine past length
+    auto ids = torch::from_blob((void*)input_ids_vec.data(), {batch, seq_len}, torch::kInt64).clone();
     int64_t past_len = 0;
+
     if (!past_key_values.empty()) {
-        auto tup0 = past_key_values[0].toTuple();
-        torch::Tensor key0 = tup0->elements()[0].toTensor();
-        past_len = key0.size(2);
-    }
-
-    // 3) Build attention_mask
-    torch::Tensor attention_mask = torch::ones({batch_size, past_len + seq_len}, torch::kInt64).to(device);
-
-    // 4) Initialize past_key_values if empty
-    if (past_key_values.empty()) {
+        auto tup = past_key_values[0].toTuple();
+        past_len = tup->elements()[0].toTensor().size(2);
+    } else {
         past_key_values.reserve(num_layers);
         for (int i = 0; i < num_layers; ++i) {
-            torch::Tensor key = torch::empty({batch_size, n_head, 0, head_dim}, torch::kFloat32).to(device);
-            torch::Tensor value = torch::empty({batch_size, n_head, 0, head_dim}, torch::kFloat32).to(device);
-            auto layer_tuple = c10::ivalue::Tuple::create({ key, value });
-            past_key_values.push_back(layer_tuple);
+            auto key = torch::empty({batch, n_head, 0, head_dim});
+            auto val = torch::empty({batch, n_head, 0, head_dim});
+            past_key_values.push_back(c10::ivalue::Tuple::create({key, val}));
         }
     }
 
-    // 5) Build outer tuple of past_key_values
-    c10::IValue past_ivalue = c10::ivalue::Tuple::create(past_key_values);
+    auto mask = torch::ones({batch, past_len + seq_len}, torch::kInt64);
+    c10::IValue past_tuple = c10::ivalue::Tuple::create(past_key_values);
 
-    // 6) Call forward
-    std::vector<c10::IValue> inputs{ input_ids, attention_mask, past_ivalue };
-    auto out_iv = model.forward(inputs).toTuple();
+    auto out = model.forward({ids, mask, past_tuple}).toTuple();
+    auto logits = out->elements()[0].toTensor().index({0, seq_len - 1});
 
-    // 7) Extract logits (shape [1, seq_len, vocab_size])
-    torch::Tensor logits_tensor = out_iv->elements()[0].toTensor();
+    std::vector<float> result(logits.numel());
+    std::memcpy(result.data(), logits.data_ptr<float>(), result.size() * sizeof(float));
 
-    // ✅ Select only last token logits [vocab_size]
-    torch::Tensor last_logits = logits_tensor.index({0, seq_len - 1});
-
-    // Copy to std::vector<float>
-    std::vector<float> logits(last_logits.numel());
-    std::memcpy(
-        logits.data(),
-        last_logits.data_ptr<float>(),
-        last_logits.numel() * sizeof(float)
-    );
-
-    // 8) Update past_key_values with new present
-    auto present_tuple = out_iv->elements()[1].toTuple();
     past_key_values.clear();
-    for (auto &layer_iv : present_tuple->elements()) {
-        past_key_values.push_back(layer_iv);
-    }
+    for (auto &layer : out->elements()[1].toTuple()->elements())
+        past_key_values.push_back(layer);
 
-    return logits;
+    return result;
 }
+#endif // USE_ONNX / USE_TORCH
 
-
-
-
-}
+} // namespace mmm

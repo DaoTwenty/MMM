@@ -358,18 +358,25 @@ PYBIND11_MODULE(mmm, m) {
     .def(py::init<>())
 
     // Constructor with args
-    .def(py::init<const std::string&, const std::string&, bool, bool, int>(),
-         py::arg("path"),
-         py::arg("type") = "",
-         py::arg("cached") = false,
-         py::arg("coreml") = false,
-         py::arg("vocab_size") = 0)
+#ifdef USE_ONNX
+    .def(py::init<const std::string&, bool, bool, int>(),
+#endif
+#ifdef USE_TORCH
+    .def(py::init<const std::string&, bool, int>(),
+#endif
+        py::arg("path"),
+        py::arg("cached") = false,
+#ifdef USE_ONNX
+        py::arg("coreml") = false,
+#endif
+        py::arg("vocab_size") = 0)
 
     // --- Fields ---
     .def_readwrite("path", &mmm::ModelConfig::path)
-    .def_readwrite("type", &mmm::ModelConfig::type)
     .def_readwrite("cached", &mmm::ModelConfig::cached)
+#ifdef USE_ONNX
     .def_readwrite("coreml", &mmm::ModelConfig::coreml)
+#endif
     .def_readwrite("vocab_size", &mmm::ModelConfig::vocab_size)
 
     // --- Constructors from JSON ---
@@ -381,9 +388,10 @@ PYBIND11_MODULE(mmm, m) {
         f >> j;
         mmm::ModelConfig cfg;
         cfg.path = j.at("path").get<std::string>();
-        if (j.contains("type")) cfg.type = j.at("type").get<std::string>();
         if (j.contains("cached")) cfg.cached = j.at("cached").get<bool>();
+#ifdef USE_ONNX
         if (j.contains("coreml")) cfg.coreml = j.at("coreml").get<bool>();
+#endif
         if (j.contains("vocab_size")) cfg.vocab_size = j.at("vocab_size").get<int>();
         return cfg;
     })
@@ -391,9 +399,10 @@ PYBIND11_MODULE(mmm, m) {
         nlohmann::json j = nlohmann::json::parse(json_str);
         mmm::ModelConfig cfg;
         cfg.path = j.at("path").get<std::string>();
-        if (j.contains("type")) cfg.type = j.at("type").get<std::string>();
         if (j.contains("cached")) cfg.cached = j.at("cached").get<bool>();
+#ifdef USE_ONNX
         if (j.contains("coreml")) cfg.coreml = j.at("coreml").get<bool>();
+#endif
         if (j.contains("vocab_size")) cfg.vocab_size = j.at("vocab_size").get<int>();
         return cfg;
     })
@@ -402,9 +411,10 @@ PYBIND11_MODULE(mmm, m) {
     .def_static("from_dict", [](const py::dict &d) {
         mmm::ModelConfig cfg;
         if (d.contains("path")) cfg.path = d["path"].cast<std::string>();
-        if (d.contains("type")) cfg.type = d["type"].cast<std::string>();
         if (d.contains("cached")) cfg.cached = d["cached"].cast<bool>();
+#ifdef USE_ONNX
         if (d.contains("coreml")) cfg.coreml = d["coreml"].cast<bool>();
+#endif
         if (d.contains("vocab_size")) cfg.vocab_size = d["vocab_size"].cast<int>();
         return cfg;
     }, "Create a ModelConfig from a Python dictionary.")
@@ -413,9 +423,10 @@ PYBIND11_MODULE(mmm, m) {
     .def("to_dict", [](const mmm::ModelConfig &cfg) {
         py::dict d;
         d["path"] = cfg.path;
-        d["type"] = cfg.type;
         d["cached"] = cfg.cached;
+#ifdef USE_ONNX
         d["coreml"] = cfg.coreml;
+#endif
         d["vocab_size"] = cfg.vocab_size;
         return d;
     }, "Return a Python dictionary representation of this ModelConfig.")
@@ -424,9 +435,10 @@ PYBIND11_MODULE(mmm, m) {
     .def("to_json", [](const mmm::ModelConfig &cfg, int indent = 2) {
         nlohmann::json j;
         j["path"] = cfg.path;
-        j["type"] = cfg.type;
         j["cached"] = cfg.cached;
+#ifdef USE_ONNX
         j["coreml"] = cfg.coreml;
+#endif
         j["vocab_size"] = cfg.vocab_size;
         return j.dump(indent);
     }, py::arg("indent") = 2, "Return a JSON string representation of this ModelConfig.")
@@ -435,9 +447,10 @@ PYBIND11_MODULE(mmm, m) {
     .def("save_json", [](const mmm::ModelConfig &cfg, const std::string &path, int indent = 2) {
         nlohmann::json j;
         j["path"] = cfg.path;
-        j["type"] = cfg.type;
         j["cached"] = cfg.cached;
+#ifdef USE_ONNX
         j["coreml"] = cfg.coreml;
+#endif
         j["vocab_size"] = cfg.vocab_size;
         std::ofstream f(path);
         if (!f.is_open())
@@ -449,9 +462,10 @@ PYBIND11_MODULE(mmm, m) {
     .def("__repr__", [](const mmm::ModelConfig &cfg) {
         std::ostringstream oss;
         oss << "<ModelConfig path='" << cfg.path
-            << "' type='" << cfg.type
             << "' cached=" << std::boolalpha << cfg.cached
+#ifdef USE_ONNX
             << " coreml=" << std::boolalpha << cfg.coreml
+#endif
             << " vocab_size=" << cfg.vocab_size << ">";
         return oss.str();
     });
@@ -459,21 +473,20 @@ PYBIND11_MODULE(mmm, m) {
     // IModel opaque factory with constructor
     py::class_<mmm::IModel, std::shared_ptr<mmm::IModel>>(m, "Model")
         .def(py::init([](const mmm::ModelConfig &cfg) -> std::shared_ptr<mmm::IModel> {
-            if (cfg.type == "ONNX") {
-                if (cfg.cached) {
-                    return std::make_shared<mmm::CausalLMCached>(cfg.path, cfg.vocab_size, cfg.coreml);
-                } else {
-                    return std::make_shared<mmm::CausalLM>(cfg.path, cfg.vocab_size, cfg.coreml);
-                }
-            } else if (cfg.type == "TORCHSCRIPT") {
-                if (cfg.cached) {
-                    return std::make_shared<mmm::CausalLMTorchCached>(cfg.path, cfg.vocab_size);
-                } else {
-                    return std::make_shared<mmm::CausalLMTorch>(cfg.path, cfg.vocab_size);
-                }
+#ifdef USE_ONNX
+            if (cfg.cached) {
+                return std::make_shared<mmm::CausalLMCached>(cfg.path, cfg.vocab_size, cfg.coreml);
             } else {
-                throw std::runtime_error("Unknown model type: " + cfg.type);
+                return std::make_shared<mmm::CausalLM>(cfg.path, cfg.vocab_size, cfg.coreml);
             }
+#endif
+#ifdef USE_TORCH
+        if (cfg.cached) {
+            return std::make_shared<mmm::CausalLMCached>(cfg.path, cfg.vocab_size);
+        } else {
+            return std::make_shared<mmm::CausalLM>(cfg.path, cfg.vocab_size);
+        }
+#endif
         }), py::arg("cfg"), "Construct a model from ModelConfig");
 
 }
