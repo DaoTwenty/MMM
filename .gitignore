@@ -11,3 +11,6 @@ __pycache__
 .vscode/
 **/*.mid
 build/
+mmm/
+onnxruntime/
+torch/

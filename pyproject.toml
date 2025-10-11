@@ -7,9 +7,9 @@ name = "mmm"
 version = "0.0.1"
 description = "Multitrack Music Machine (native C++ core)."
 authors = [
-    { name = "Paul Triana" }
+    { name = "Paul Triana", email="paul_triana@sfu.ca"}
 ]
-readme = "README.md"
+readme = "pylib/README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.8"
 classifiers = [
@@ -29,24 +29,18 @@ classifiers = [
 ]
 urls = { Homepage = "https://github.com/Metacreation-Lab/MMM" }
 
-[tool.scikit-build]
-wheel.expand-macos-universal-tags = true
-cmake.verbose = true
-cmake.minimum-version = "3.10"
-
-wheel.packages = ["mmm"]
-
-wheel.include = [
-    "mmm/onnxruntime/**",
-    "mmm/torch/**"
-]
-
 [tool.scikit-build.cmake.define]
 CMAKE_BUILD_TYPE = "Release"
+CMAKE_POLICY_VERSION_MINIMUM = "3.5"
 BUILD_PYBIND = "ON"
 BUILD_BENCHMARK = "ON"
 USE_ONNX = "ON"
 USE_TORCH = "OFF"
 
 [tool.scikit-build]
+wheel.packages = ["mmm"]
 build-dir = "build"
+wheel.expand-macos-universal-tags = true
+cmake.version = ">=3.10"
+build.verbose = true
+logging.level = "INFO"

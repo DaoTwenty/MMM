@@ -96,6 +96,7 @@ endif()
 # Pybind11 Python module
 # -------------------------------------------------------------------
 if (BUILD_PYBIND)
+    find_package(pybind11 REQUIRED)
     pybind11_add_module(mmm pylib/bindings.cpp ${COMMON_SOURCES})
     target_include_directories(mmm PRIVATE ${COMMON_INCLUDES})
     target_link_libraries(mmm PRIVATE ${COMMON_LIBS})
@@ -111,6 +112,22 @@ if (BUILD_PYBIND)
             BUILD_RPATH "@loader_path/torch/lib"
             INSTALL_RPATH "@loader_path/torch/lib"
         )
+    endif()
+
+    # -------------------------------------------------------------------
+    # Wheel building
+    # -------------------------------------------------------------------
+    # Copy module into the wheel
+    install(TARGETS mmm
+            DESTINATION "mmm")
+
+    # Copy engine lib
+    if(USE_ONNX)
+        install(DIRECTORY "${ONNXRUNTIME_ROOTDIR}/lib"
+                DESTINATION "mmm/onnxruntime")
+    elseif(USE_TORCH)
+        install(DIRECTORY "${LIBTORCH_ROOTDIR}/lib"
+                DESTINATION "mmm/torch")
     endif()
 endif()
 
