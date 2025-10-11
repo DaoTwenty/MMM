@@ -35,35 +35,24 @@ include(libs/libtok.cmake)
 # -------------------------------------------------------------------
 # Backend selection
 # -------------------------------------------------------------------
-
 if (USE_TORCH)
     add_compile_definitions(USE_TORCH)
     message(STATUS "Building with Torch backend")
 
-    # LibTorch
-    set(DEFAULT_LIBTORCH_ROOT "$ENV{HOME}/libs/libtorch")
-    set(LIBTORCH_ROOTDIR ${DEFAULT_LIBTORCH_ROOT} CACHE PATH "Path to LibTorch installation")
-    list(APPEND CMAKE_PREFIX_PATH ${LIBTORCH_ROOTDIR})
-    find_package(Torch REQUIRED)
-
-    message(STATUS "Torch_DIR: ${Torch_DIR}")
-    message(STATUS "Torch include dirs: ${TORCH_INCLUDE_DIRS}")
-    message(STATUS "Torch libraries: ${TORCH_LIBRARIES}")
+    # Include our LibTorch cmake
+    include(libs/libtorch.cmake)
 
 elseif (USE_ONNX)
     add_compile_definitions(USE_ONNX)
     message(STATUS "Building with ONNX Runtime backend")
 
+    # Include our ONNX Runtime cmake
     include(libs/onnxruntime.cmake)
-
-    set(ONNXRUNTIME_INCLUDE_DIR "${ONNXRUNTIME_ROOTDIR}/include")
-    set(ONNXRUNTIME_LIBRARIES onnxruntime::onnxruntime)
 endif()
 
 # -------------------------------------------------------------------
 # Common sources
 # -------------------------------------------------------------------
-
 set(COMMON_SOURCES
     src/model.cpp
     src/sampler.cpp
@@ -79,40 +68,50 @@ set(COMMON_LIBS LibTok nlohmann_json::nlohmann_json)
 if (USE_TORCH)
     list(APPEND COMMON_LIBS "${TORCH_LIBRARIES}")
 elseif (USE_ONNX)
-    list(APPEND COMMON_LIBS "${ONNXRUNTIME_LIBRARIES}")
+    list(APPEND COMMON_LIBS onnxruntime::onnxruntime)
 endif()
 
 # -------------------------------------------------------------------
 # Benchmark executable
 # -------------------------------------------------------------------
-
 if (BUILD_BENCHMARK)
     add_executable(mmm_benchmark src/benchmark.cpp ${COMMON_SOURCES})
     target_include_directories(mmm_benchmark PRIVATE ${COMMON_INCLUDES})
     target_link_libraries(mmm_benchmark PRIVATE ${COMMON_LIBS})
-    set_target_properties(mmm_benchmark PROPERTIES
-        BUILD_RPATH "${ONNXRUNTIME_ROOTDIR_PIP}"
-    )
+
+    if(USE_ONNX)
+        set_target_properties(mmm_benchmark PROPERTIES
+            BUILD_RPATH "@loader_path/../onnxruntime/lib"   # macOS
+            INSTALL_RPATH "@loader_path/../onnxruntime/lib"
+        )
+    elseif(USE_TORCH)
+        set_target_properties(mmm_benchmark PROPERTIES
+            BUILD_RPATH "@loader_path/../torch/lib"        # macOS
+            INSTALL_RPATH "@loader_path/../torch/lib"
+        )
+    endif()
 endif()
 
 # -------------------------------------------------------------------
 # Pybind11 Python module
 # -------------------------------------------------------------------
-
 if (BUILD_PYBIND)
-    add_subdirectory(external/pybind11)
-
-    set(PYBIND_SOURCES
-        pylib/bindings.cpp
-        ${COMMON_SOURCES}
-    )
-
-    pybind11_add_module(mmm ${PYBIND_SOURCES})
+    pybind11_add_module(mmm pylib/bindings.cpp ${COMMON_SOURCES})
     target_include_directories(mmm PRIVATE ${COMMON_INCLUDES})
     target_link_libraries(mmm PRIVATE ${COMMON_LIBS})
-    set_target_properties(mmm PROPERTIES
-        BUILD_RPATH "${ONNXRUNTIME_ROOTDIR_PIP}"
-    )
+
+    if(USE_ONNX)
+        # mm.so will be in mmm/; ONNX dylibs in mmm/onnxruntime/lib/
+        set_target_properties(mmm PROPERTIES
+            BUILD_RPATH "@loader_path/onnxruntime/lib"
+            INSTALL_RPATH "@loader_path/onnxruntime/lib"
+        )
+    elseif(USE_TORCH)
+        set_target_properties(mmm PROPERTIES
+            BUILD_RPATH "@loader_path/torch/lib"
+            INSTALL_RPATH "@loader_path/torch/lib"
+        )
+    endif()
 endif()
 
 # -------------------------------------------------------------------
@@ -123,5 +122,10 @@ message(STATUS "Project configuration summary:")
 message(STATUS "  Backend:       ${USE_TORCH} (Torch) / ${USE_ONNX} (ONNX)")
 message(STATUS "  Pybind:        ${BUILD_PYBIND}")
 message(STATUS "  Benchmark:     ${BUILD_BENCHMARK}")
-message(STATUS "  LibTok path:   ${LIBTOK_PATH}")
+message(STATUS "  LibTok path:   ${LIBTOK_ROOTDIR}")
+if(USE_ONNX)
+    message(STATUS "  ONNX path:     ${ONNXRUNTIME_ROOTDIR}")
+elseif(USE_TORCH)
+    message(STATUS "  TORCH path:    ${LIBTORCH_ROOTDIR}")
+endif()
 message(STATUS "------------------------------------------------------------")

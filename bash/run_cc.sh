@@ -37,8 +37,12 @@ if [[ ! -f "$BUILD_DIR/CMakeCache.txt" ]]; then
     cmake -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DLIBTOK_ROOTDIR="$SCRATCH"/libtok \
-        -DONNXRUNTIME_ROOTDIR="$SCRATCH"/libs/onnxruntime \
-        -DLIBTORCH_ROOTDIR="$SCRATCH"/libs/libtorch-cpu
+        -DONNXRUNTIME_ROOTDIR="$SCRATCH"/libs/onnxruntime-cpu \
+        -DLIBTORCH_ROOTDIR="$SCRATCH"/libs/libtorch-cpu \
+        -DBUILD_PYBIND=ON \
+        -DBUILD_BENCHMARK=ON \
+        -DUSE_ONNX=ON \
+        -DUSE_TORCH=OFF
 fi
 
 # Build incrementally
