@@ -30,7 +30,7 @@ endif()
 # -------------------------------------------------------------------
 
 # LibTok
-include(libs/libtok.cmake)
+include(cmake/libtok.cmake)
 
 # -------------------------------------------------------------------
 # Backend selection
@@ -40,14 +40,14 @@ if (USE_TORCH)
     message(STATUS "Building with Torch backend")
 
     # Include our LibTorch cmake
-    include(libs/libtorch.cmake)
+    include(cmake/libtorch.cmake)
 
 elseif (USE_ONNX)
     add_compile_definitions(USE_ONNX)
     message(STATUS "Building with ONNX Runtime backend")
 
     # Include our ONNX Runtime cmake
-    include(libs/onnxruntime.cmake)
+    include(cmake/onnxruntime.cmake)
 endif()
 
 # -------------------------------------------------------------------
@@ -78,39 +78,38 @@ if (BUILD_BENCHMARK)
     add_executable(mmm_benchmark src/benchmark.cpp ${COMMON_SOURCES})
     target_include_directories(mmm_benchmark PRIVATE ${COMMON_INCLUDES})
     target_link_libraries(mmm_benchmark PRIVATE ${COMMON_LIBS})
-
-    if(USE_ONNX)
-        set_target_properties(mmm_benchmark PROPERTIES
-            BUILD_RPATH "@loader_path/../onnxruntime/lib"   # macOS
-            INSTALL_RPATH "@loader_path/../onnxruntime/lib"
-        )
-    elseif(USE_TORCH)
-        set_target_properties(mmm_benchmark PROPERTIES
-            BUILD_RPATH "@loader_path/../torch/lib"        # macOS
-            INSTALL_RPATH "@loader_path/../torch/lib"
-        )
-    endif()
 endif()
 
 # -------------------------------------------------------------------
 # Pybind11 Python module
 # -------------------------------------------------------------------
 if (BUILD_PYBIND)
+
+    set(PYBIND11_FINDPYTHON ON)
     find_package(pybind11 REQUIRED)
     pybind11_add_module(mmm pylib/bindings.cpp ${COMMON_SOURCES})
     target_include_directories(mmm PRIVATE ${COMMON_INCLUDES})
     target_link_libraries(mmm PRIVATE ${COMMON_LIBS})
 
     if(USE_ONNX)
-        # mm.so will be in mmm/; ONNX dylibs in mmm/onnxruntime/lib/
-        set_target_properties(mmm PROPERTIES
-            BUILD_RPATH "@loader_path/onnxruntime/lib"
-            INSTALL_RPATH "@loader_path/onnxruntime/lib"
-        )
+        if(APPLE)
+            set(RPATH_LIB "@loader_path/onnxruntime/lib")
+        elseif(UNIX)
+            set(RPATH_LIB "$ORIGIN/onnxruntime/lib")
+        endif()
     elseif(USE_TORCH)
+        if(APPLE)
+            set(RPATH_LIB "@loader_path/torch/lib")
+        elseif(UNIX)
+            set(RPATH_LIB "$ORIGIN/torch/lib")
+        endif()
+    endif()
+
+    # Apply RPATH if set
+    if(RPATH_LIB)
         set_target_properties(mmm PROPERTIES
-            BUILD_RPATH "@loader_path/torch/lib"
-            INSTALL_RPATH "@loader_path/torch/lib"
+            BUILD_RPATH "${RPATH_LIB}"
+            INSTALL_RPATH "${RPATH_LIB}"
         )
     endif()
 

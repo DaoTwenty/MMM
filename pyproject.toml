@@ -33,7 +33,7 @@ urls = { Homepage = "https://github.com/Metacreation-Lab/MMM" }
 CMAKE_BUILD_TYPE = "Release"
 CMAKE_POLICY_VERSION_MINIMUM = "3.5"
 BUILD_PYBIND = "ON"
-BUILD_BENCHMARK = "ON"
+BUILD_BENCHMARK = "OFF"
 USE_ONNX = "ON"
 USE_TORCH = "OFF"
 
