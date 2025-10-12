@@ -10,25 +10,25 @@ Example:
 from mmm import Model, Tokenizer, PromptConfig, SamplingEngine, GenerationConfig, Score, generate
 
 # Load model and tokenizer
-model_cfg = ModelConfig(path="model.onnx", type="ONNX", vocab_size=512)
+model_cfg = ModelConfig(path="model.onnx", vocab_size=512)
 model = Model(model_cfg)
 tokenizer = Tokenizer("tokenizer.json")
 
 # Create prompt
-prompt_cfg = PromptConfig({"bars": {0: [(0, 4, ["piano"])], 1: [(0, 4, ["drums"])]}}, context_length=8)
+prompt_cfg = PromptConfig({"bars": {0: [(0, 4, ["attribute_control_1", "attribute_control_2"])], 1: [(0, 4, ["attribute_control_3"])]}}, context_length=8)
 
 # Create sampling engine
 gen_cfg = GenerationConfig(max_new_tokens=50)
 engine = SamplingEngine(gen_cfg, tokenizer)
 
 # Create initial score (empty)
-score_obj = Score()
+score_obj = Score("score_to_infill.mid")
 
 # Run generation
 generated_score = generate(model, tokenizer, prompt_cfg, engine, score_obj, verbose=True)
 
 # Save output
-generated_score.save("generated.mid")
+generated_score.save("infilled_score.mid")
 ```
 
 ## Functions
@@ -124,7 +124,7 @@ engine = mmm.SamplingEngine(config, tokenizer, seed=42, verbose=True)
 
 - `config` – Get/set `GenerationConfig`.
 
-- `seed` – Get/set RNG seed.
+- `seed` – Get/set RNG seed (Setting -1 picks random seed).
 
 - `vocab_size` (readonly) – Vocabulary size.
 
@@ -164,7 +164,6 @@ Represents a musical score (MIDI).
 #### Constructor:
 
 ```python
-score = mmm.Score()             # empty score
 score = mmm.Score("file.mid")   # load from MIDI file
 ```
 
@@ -191,7 +190,7 @@ cfg = mmm.PromptConfig(mode_dict, context_length=4)
 
 #### Properties:
 
-- `context_length: int` – Get/set context length.
+- `context_length: int` – Get/set context length in bars.
 
 - `bar_infilling()` – Returns True if in `BarInfilling` mode.
 
@@ -234,9 +233,8 @@ Configuration object for constructing models.
 cfg = mmm.ModelConfig()
 cfg = mmm.ModelConfig(
     path="model.onnx",
-    type="ONNX",
     cached=True,
-    coreml=False,
+    coreml=False, # Only for ONNX backend engine
     vocab_size=512
 )
 ```
@@ -258,7 +256,7 @@ cfg = mmm.ModelConfig(
 #### Example:
 
 ```python
-model_cfg = mmm.ModelConfig(path="model.onnx", type="ONNX", cached=True, vocab_size=512)
+model_cfg = mmm.ModelConfig(path="model.onnx", cached=True, vocab_size=512)
 print(model_cfg.to_json())
 ```
 
