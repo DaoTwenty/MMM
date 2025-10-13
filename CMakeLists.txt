@@ -30,6 +30,7 @@ endif()
 # -------------------------------------------------------------------
 
 # LibTok
+set(LIBTOK_EXCLUDE_FROM_INSTALL ON CACHE BOOL "Exclude LibTok from install" FORCE)
 include(cmake/libtok.cmake)
 
 # -------------------------------------------------------------------
@@ -118,16 +119,72 @@ if (BUILD_PYBIND)
     # -------------------------------------------------------------------
     # Copy module into the wheel
     install(TARGETS mmm
-            DESTINATION "mmm")
+            LIBRARY DESTINATION "mmm"   # .so on Unix / .dylib on macOS
+            RUNTIME DESTINATION "mmm"   # .dll on Windows
+    )
 
-    # Copy engine lib
+    # Copy engine lib - ONLY shared libraries
     if(USE_ONNX)
-        install(DIRECTORY "${ONNXRUNTIME_ROOTDIR}/lib"
-                DESTINATION "mmm/onnxruntime")
+        # Only install shared libraries, not .a or .cmake files
+        install(DIRECTORY "${ONNXRUNTIME_ROOTDIR}/lib/"
+                DESTINATION "mmm/onnxruntime/lib"
+                FILES_MATCHING
+                PATTERN "*.so*"      # Linux shared libs
+                PATTERN "*.dylib"    # macOS shared libs
+                PATTERN "*.dll"      # Windows shared libs
+                PATTERN "*.a" EXCLUDE
+                PATTERN "*.cmake" EXCLUDE
+                PATTERN "cmake" EXCLUDE
+                PATTERN "*.dSYM" EXCLUDE
+                PATTERN "pkgconfig" EXCLUDE
+                PATTERN "*.pc" EXCLUDE
+        )
     elseif(USE_TORCH)
-        install(DIRECTORY "${LIBTORCH_ROOTDIR}/lib"
-                DESTINATION "mmm/torch")
+        # Only install shared libraries, not .a or .cmake files
+        install(DIRECTORY "${LIBTORCH_ROOTDIR}/lib/"
+                DESTINATION "mmm/torch/lib"
+                FILES_MATCHING
+                PATTERN "*.so*"      # Linux shared libs
+                PATTERN "*.dylib"    # macOS shared libs
+                PATTERN "*.dll"      # Windows shared libs
+                PATTERN "*.a" EXCLUDE
+                PATTERN "*.cmake" EXCLUDE
+                PATTERN "cmake" EXCLUDE
+                PATTERN "*.dSYM" EXCLUDE
+                PATTERN "pkgconfig" EXCLUDE
+                PATTERN "*.pc" EXCLUDE
+        )
     endif()
+    
+    # -------------------------------------------------------------------
+    # Post-install cleanup - append to cmake_install.cmake
+    # -------------------------------------------------------------------
+    # Create cleanup script
+    set(CLEANUP_APPEND_FILE "${CMAKE_CURRENT_BINARY_DIR}/cleanup_append.cmake")
+    file(WRITE "${CLEANUP_APPEND_FILE}" "
+# Cleanup unwanted files installed by dependencies
+if(EXISTS \"\${CMAKE_INSTALL_PREFIX}/include\")
+    file(REMOVE_RECURSE \"\${CMAKE_INSTALL_PREFIX}/include\")
+    message(STATUS \"Cleaned: include/\")
+endif()
+if(EXISTS \"\${CMAKE_INSTALL_PREFIX}/lib\")
+    file(REMOVE_RECURSE \"\${CMAKE_INSTALL_PREFIX}/lib\")
+    message(STATUS \"Cleaned: lib/\")
+endif()
+if(EXISTS \"\${CMAKE_INSTALL_PREFIX}/share\")
+    file(REMOVE_RECURSE \"\${CMAKE_INSTALL_PREFIX}/share\")
+    message(STATUS \"Cleaned: share/\")
+endif()
+")
+    
+    # Add custom command to append cleanup to the generated cmake_install.cmake
+    add_custom_target(append_cleanup ALL
+        COMMAND ${CMAKE_COMMAND} -E echo "# === Post-install cleanup ===" >> "${CMAKE_BINARY_DIR}/cmake_install.cmake"
+        COMMAND ${CMAKE_COMMAND} -E cat "${CLEANUP_APPEND_FILE}" >> "${CMAKE_BINARY_DIR}/cmake_install.cmake"
+        COMMENT "Appending cleanup script to cmake_install.cmake"
+        VERBATIM
+    )
+    add_dependencies(append_cleanup mmm)
 endif()
 
 # -------------------------------------------------------------------

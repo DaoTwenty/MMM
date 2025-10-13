@@ -10,7 +10,7 @@ if(NOT EXISTS "${LIBTOK_ROOTDIR}/CMakeLists.txt")
     set(LIBTOK_ROOTDIR "${DEFAULT_LIBTOK_ROOT}")
 endif()
 
-# Clone LibTok if it doesn’t exist at default
+# Clone LibTok if it doesn't exist at default
 if(NOT EXISTS "${LIBTOK_ROOTDIR}/CMakeLists.txt")
     message(STATUS "LibTok not found at ${LIBTOK_ROOTDIR}, cloning private repo via SSH...")
     set(LIBTOK_BRANCH "parameterised_test_suite")
@@ -37,6 +37,18 @@ if(NOT EXISTS "${LIBTOK_EXTERNAL_DIR}")
     file(COPY "${LIBTOK_ROOTDIR}/external" DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
 
+# Disable installation of all dependencies before including them
+set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+
+# Disable msgpack installation (used by tokenizers_cpp)
+set(MSGPACK_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(MSGPACK_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(MSGPACK_INSTALL OFF CACHE BOOL "" FORCE)
+set(MSGPACK_USE_BOOST OFF CACHE BOOL "" FORCE)
+
 # Include Dependencies.cmake from the local external folder
 set(LIBTOK_DEPENDENCIES "${LIBTOK_EXTERNAL_DIR}/Dependencies.cmake")
 if(EXISTS "${LIBTOK_DEPENDENCIES}")
@@ -45,13 +57,19 @@ else()
     message(FATAL_ERROR "LibTok Dependencies.cmake not found at ${LIBTOK_DEPENDENCIES}")
 endif()
 
-# Make LibTok available using FetchContent
+# Make LibTok available using FetchContent with EXCLUDE_FROM_ALL
 include(FetchContent)
 FetchContent_Declare(
     LibTok
     SOURCE_DIR "${LIBTOK_ROOTDIR}"
 )
-FetchContent_MakeAvailable(LibTok)
+
+# Use manual population with EXCLUDE_FROM_ALL to prevent install rules
+FetchContent_GetProperties(LibTok)
+if(NOT libtok_POPULATED)
+    FetchContent_Populate(LibTok)
+    add_subdirectory(${libtok_SOURCE_DIR} ${libtok_BINARY_DIR} EXCLUDE_FROM_ALL)
+endif()
 
 # Create an imported target for easier linking
 add_library(libtok::libtok INTERFACE IMPORTED)
