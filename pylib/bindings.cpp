@@ -13,6 +13,61 @@
 
 namespace py = pybind11;
 
+static nlohmann::json py_to_json(const py::handle& obj) {
+    if (py::isinstance<py::bool_>(obj)) {
+        return obj.cast<bool>();
+    } else if (py::isinstance<py::int_>(obj)) {
+        return obj.cast<int>();
+    } else if (py::isinstance<py::float_>(obj)) {
+        return obj.cast<double>();
+    } else if (py::isinstance<py::str>(obj)) {
+        return obj.cast<std::string>();
+    } else if (py::isinstance<py::dict>(obj)) {
+        nlohmann::json j = nlohmann::json::object();
+        for (auto item : obj.cast<py::dict>()) {
+            j[py::str(item.first)] = py_to_json(item.second);
+        }
+        return j;
+    } else if (py::isinstance<py::list>(obj) || py::isinstance<py::tuple>(obj)) {
+        nlohmann::json j = nlohmann::json::array();
+        for (auto item : obj.cast<py::iterable>()) {
+            j.push_back(py_to_json(item));
+        }
+        return j;
+    } else if (obj.is_none()) {
+        return nullptr;
+    } else {
+        // Fallback: string representation
+        return py::str(obj);
+    }
+}
+
+py::object json_to_py(const nlohmann::json &j) {
+    if (j.is_object()) {
+        py::dict d;
+        for (auto it = j.begin(); it != j.end(); ++it)
+            d[py::str(it.key())] = json_to_py(it.value());
+        return d;
+    } else if (j.is_array()) {
+        py::list l;
+        for (auto &el : j) l.append(json_to_py(el));
+        return l;
+    } else if (j.is_string()) {
+        return py::str(j.get<std::string>());
+    } else if (j.is_boolean()) {
+        return py::bool_(j.get<bool>());
+    } else if (j.is_number_integer()) {
+        return py::int_(j.get<int>());
+    } else if (j.is_number_unsigned()) {
+        return py::int_(j.get<unsigned>());
+    } else if (j.is_number_float()) {
+        return py::float_(j.get<double>());
+    } else if (j.is_null()) {
+        return py::none();
+    }
+    throw std::runtime_error("Unsupported JSON type");
+}
+
 PYBIND11_MODULE(mmm, m) {
     m.doc() = "Python bindings for MMM inference";
 
@@ -60,7 +115,7 @@ PYBIND11_MODULE(mmm, m) {
         nlohmann::json j = nlohmann::json::object();
         for (auto item : py_cfg) {
             std::string key = py::str(item.first);
-            j[key] = py::cast<nlohmann::json>(item.second);
+            j[key] = py_to_json(item.second);
         }
         mmm::sampling::GenerationConfig cfg;
         mmm::utils::from_json(j, cfg);
@@ -153,12 +208,7 @@ PYBIND11_MODULE(mmm, m) {
                 throw std::runtime_error("Tokenizer requires a file path or TokenizerConfig.");
             }
             return std::make_unique<LibTok::MMM>(tokenizer_path, false);
-        }), py::arg("tokenizer_path"))
-        
-        .def("save", [](const LibTok::MMM &tokenizer, const std::string &path) {
-            // placeholder logic, replace with real save
-            std::cout << "[Tokenizer] Saving to " << path << "\n";
-        });
+        }), py::arg("tokenizer_path"));
 
 
     // ----------------- Score -----------------
@@ -179,9 +229,6 @@ PYBIND11_MODULE(mmm, m) {
 
     // ----------------- PromptConfig -----------------
     py::class_<mmm::inference::PromptConfig>(m, "PromptConfig")
-    // Default constructor
-    .def(py::init<>())
-    // Constructor with arguments
     .def(py::init([](const py::object &mode_obj, int context_length) {
         mmm::inference::PromptConfig cfg;
         cfg.context_length = context_length;
@@ -279,11 +326,7 @@ PYBIND11_MODULE(mmm, m) {
         return cfg;
     })
     .def_static("from_dict", [](const py::dict &py_cfg) {
-        nlohmann::json j = nlohmann::json::object();
-        for (auto item : py_cfg) {
-            std::string key = py::str(item.first);
-            j[key] = py::cast<nlohmann::json>(item.second);
-        }
+        nlohmann::json j = py_to_json(py_cfg);   // recursive conversion
         mmm::inference::PromptConfig cfg;
         std::string mode = j.at("mode").get<std::string>();
         if (mode == "BarInfilling") {
@@ -316,7 +359,7 @@ PYBIND11_MODULE(mmm, m) {
             mmm::utils::to_json(cfg_j, std::get<mmm::inference::TrackSampling>(cfg.mode));
             j["config"] = cfg_j;
         }
-        return j;
+        return json_to_py(j);  // <- fully recursive conversion
     })
     .def("to_json", [](const mmm::inference::PromptConfig &cfg) {
         // repeat the same lambda logic
@@ -364,7 +407,7 @@ PYBIND11_MODULE(mmm, m) {
 #ifdef USE_TORCH
     .def(py::init<const std::string&, bool, int>(),
 #endif
-        py::arg("path"),
+        py::arg("model"),
         py::arg("cached") = false,
 #ifdef USE_ONNX
         py::arg("coreml") = false,
@@ -372,7 +415,7 @@ PYBIND11_MODULE(mmm, m) {
         py::arg("vocab_size") = 0)
 
     // --- Fields ---
-    .def_readwrite("path", &mmm::ModelConfig::path)
+    .def_readwrite("model", &mmm::ModelConfig::path)
     .def_readwrite("cached", &mmm::ModelConfig::cached)
 #ifdef USE_ONNX
     .def_readwrite("coreml", &mmm::ModelConfig::coreml)
@@ -387,7 +430,7 @@ PYBIND11_MODULE(mmm, m) {
         nlohmann::json j;
         f >> j;
         mmm::ModelConfig cfg;
-        cfg.path = j.at("path").get<std::string>();
+        cfg.path = j.at("model").get<std::string>();
         if (j.contains("cached")) cfg.cached = j.at("cached").get<bool>();
 #ifdef USE_ONNX
         if (j.contains("coreml")) cfg.coreml = j.at("coreml").get<bool>();
@@ -398,7 +441,7 @@ PYBIND11_MODULE(mmm, m) {
     .def_static("from_json", [](const std::string &json_str) {
         nlohmann::json j = nlohmann::json::parse(json_str);
         mmm::ModelConfig cfg;
-        cfg.path = j.at("path").get<std::string>();
+        cfg.path = j.at("model").get<std::string>();
         if (j.contains("cached")) cfg.cached = j.at("cached").get<bool>();
 #ifdef USE_ONNX
         if (j.contains("coreml")) cfg.coreml = j.at("coreml").get<bool>();
@@ -410,7 +453,7 @@ PYBIND11_MODULE(mmm, m) {
     // --- from_dict (Python dict) ---
     .def_static("from_dict", [](const py::dict &d) {
         mmm::ModelConfig cfg;
-        if (d.contains("path")) cfg.path = d["path"].cast<std::string>();
+        if (d.contains("model")) cfg.path = d["model"].cast<std::string>();
         if (d.contains("cached")) cfg.cached = d["cached"].cast<bool>();
 #ifdef USE_ONNX
         if (d.contains("coreml")) cfg.coreml = d["coreml"].cast<bool>();
@@ -422,7 +465,7 @@ PYBIND11_MODULE(mmm, m) {
     // --- to_dict (return Python dict) ---
     .def("to_dict", [](const mmm::ModelConfig &cfg) {
         py::dict d;
-        d["path"] = cfg.path;
+        d["model"] = cfg.path;
         d["cached"] = cfg.cached;
 #ifdef USE_ONNX
         d["coreml"] = cfg.coreml;
@@ -434,7 +477,7 @@ PYBIND11_MODULE(mmm, m) {
     // --- to_json (return JSON string) ---
     .def("to_json", [](const mmm::ModelConfig &cfg, int indent = 2) {
         nlohmann::json j;
-        j["path"] = cfg.path;
+        j["model"] = cfg.path;
         j["cached"] = cfg.cached;
 #ifdef USE_ONNX
         j["coreml"] = cfg.coreml;
@@ -446,7 +489,7 @@ PYBIND11_MODULE(mmm, m) {
     // --- save_json (write to file) ---
     .def("save_json", [](const mmm::ModelConfig &cfg, const std::string &path, int indent = 2) {
         nlohmann::json j;
-        j["path"] = cfg.path;
+        j["model"] = cfg.path;
         j["cached"] = cfg.cached;
 #ifdef USE_ONNX
         j["coreml"] = cfg.coreml;

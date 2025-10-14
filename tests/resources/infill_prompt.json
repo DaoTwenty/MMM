@@ -1,0 +1,18 @@
+{
+  "mode": "BarInfilling",
+  "context_length": 8,
+  "config": {
+    "0": [
+      {
+        "start_bar": 0,
+        "end_bar": 1,
+        "controls": []
+      },
+      {
+        "start_bar": 2,
+        "end_bar": 3,
+        "controls": []
+      }
+    ]
+  }
+}

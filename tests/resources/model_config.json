@@ -1,0 +1,5 @@
+{
+    "model" : "../../models/model.onnx",
+    "cached" : false,
+    "vocab_size" : 16000
+}

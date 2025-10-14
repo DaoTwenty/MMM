@@ -13,7 +13,7 @@ endif()
 # Clone LibTok if it doesn't exist at default
 if(NOT EXISTS "${LIBTOK_ROOTDIR}/CMakeLists.txt")
     message(STATUS "LibTok not found at ${LIBTOK_ROOTDIR}, cloning private repo via SSH...")
-    set(LIBTOK_BRANCH "parameterised_test_suite")
+    set(LIBTOK_BRANCH "main")
 
     execute_process(
         COMMAND git clone --depth 1 --branch ${LIBTOK_BRANCH} git@github.com:steinbergmedia/libtok.git "${LIBTOK_ROOTDIR}"

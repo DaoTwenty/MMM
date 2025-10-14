@@ -123,6 +123,13 @@ if (BUILD_PYBIND)
             RUNTIME DESTINATION "mmm"   # .dll on Windows
     )
 
+    # Copy .py files into python wheel
+    install(
+        DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/pylib/
+        DESTINATION mmm
+        FILES_MATCHING PATTERN "*.py"
+    )
+
     # Copy engine lib - ONLY shared libraries
     if(USE_ONNX)
         # Only install shared libraries, not .a or .cmake files
