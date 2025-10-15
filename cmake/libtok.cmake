@@ -26,6 +26,17 @@ if(NOT EXISTS "${LIBTOK_ROOTDIR}/CMakeLists.txt")
         message(FATAL_ERROR "Failed to clone LibTok branch '${LIBTOK_BRANCH}' via SSH:\n${git_error}")
     endif()
 
+    option(APPLY_LIBTOK_PATCH "Apply temporary fix for LibTok recursion bug" ON)
+
+    if(APPLY_LIBTOK_PATCH)
+        set(LIBTOK_PATCH_FILE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/libtok_patch.cmake")
+        if(EXISTS "${LIBTOK_PATCH_FILE}")
+            include("${LIBTOK_PATCH_FILE}")
+        else()
+            message(WARNING "LibTok patch file not found: ${LIBTOK_PATCH_FILE}")
+        endif()
+    endif()
+
 endif()
 
 # Include dependencies if present
@@ -42,12 +53,6 @@ set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-
-# Disable msgpack installation (used by tokenizers_cpp)
-set(MSGPACK_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(MSGPACK_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(MSGPACK_INSTALL OFF CACHE BOOL "" FORCE)
-set(MSGPACK_USE_BOOST OFF CACHE BOOL "" FORCE)
 
 # Include Dependencies.cmake from the local external folder
 set(LIBTOK_DEPENDENCIES "${LIBTOK_EXTERNAL_DIR}/Dependencies.cmake")

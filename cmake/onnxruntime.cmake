@@ -1,11 +1,14 @@
 # -------------------------------------------------------------------
 # ONNX Runtime auto-setup
 # -------------------------------------------------------------------
-set(ONNX_VERSION "1.22.0")
+if(NOT DEFINED ONNX_VERSION)
+    set(ONNX_VERSION "1.22.0")
+endif()
 
 # Default path within project
 set(DEFAULT_ONNXRUNTIME_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/libraries/onnxruntime")
 set(ONNXRUNTIME_ROOTDIR ${DEFAULT_ONNXRUNTIME_ROOT} CACHE PATH "Path to ONNX Runtime installation")
+set(ONNX_BASE_URL "https://github.com/microsoft/onnxruntime/releases/download")
 
 # Determine platform & binary archive
 if(APPLE)
@@ -46,29 +49,48 @@ if(NOT "${ONNXRUNTIME_ROOTDIR}" STREQUAL "${DEFAULT_ONNXRUNTIME_ROOT}"
     set(ONNXRUNTIME_ROOTDIR "${DEFAULT_ONNXRUNTIME_ROOT}")
 endif()
 
+set(ONNX_URL "${ONNX_BASE_URL}/v${ONNX_VERSION}/${ONNX_ARCHIVE}")
+message(STATUS "ONNX Runtime version: ${ONNX_VERSION}")
+message(STATUS "ONNX archive: ${ONNX_ARCHIVE}")
+message(STATUS "ONNX download URL: ${ONNX_URL}")
+
 # Download and extract if missing
 if(NOT EXISTS "${ONNXRUNTIME_ROOTDIR}/include/onnxruntime_cxx_api.h")
     message(STATUS "Downloading ONNX Runtime from ${ONNX_URL}...")
-    file(DOWNLOAD "${ONNX_URL}" "${CMAKE_BINARY_DIR}/${ONNX_ARCHIVE}" SHOW_PROGRESS)
 
-    # Extract
-    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/onnx_tmp")
+    # Ensure destination directory exists
+    file(MAKE_DIRECTORY "${CMAKE_SOURCE_DIR}/libraries")
+
+    # Download the archive
+    file(DOWNLOAD "${ONNX_URL}" "${CMAKE_BINARY_DIR}/${ONNX_ARCHIVE}" SHOW_PROGRESS STATUS DL_STATUS)
+    list(GET DL_STATUS 0 DL_CODE)
+    if(NOT DL_CODE EQUAL 0)
+        message(FATAL_ERROR "Failed to download ONNX Runtime: ${DL_STATUS}")
+    endif()
+
+    # Extract into libraries/
+    message(STATUS "Extracting TAR archive...")
     execute_process(
-        COMMAND ${CMAKE_COMMAND} -E tar xzf "${CMAKE_BINARY_DIR}/${ONNX_ARCHIVE}" 
-        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/onnx_tmp"
+        COMMAND ${CMAKE_COMMAND} -E tar xzf "${CMAKE_BINARY_DIR}/${ONNX_ARCHIVE}"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/libraries"
+        RESULT_VARIABLE EXTRACT_RESULT
     )
 
-    # Move extracted contents to libraries/onnxruntime
-    file(GLOB ONNX_EXTRACTED_DIR "${CMAKE_BINARY_DIR}/onnx_tmp/onnxruntime-*")
-    list(GET ONNX_EXTRACTED_DIR 0 ONNX_RUNTIME_DIR)
-    file(MAKE_DIRECTORY "${DEFAULT_ONNXRUNTIME_ROOT}")
-    file(COPY "${ONNX_RUNTIME_DIR}/" DESTINATION "${DEFAULT_ONNXRUNTIME_ROOT}")
+    if(NOT EXTRACT_RESULT EQUAL 0)
+        message(FATAL_ERROR "Failed to extract ONNX Runtime archive.")
+    endif()
 
-    # Cleanup
-    file(REMOVE_RECURSE "${CMAKE_BINARY_DIR}/onnx_tmp")
-    file(REMOVE "${CMAKE_BINARY_DIR}/${ONNX_ARCHIVE}")
+    # Find extracted folder
+    file(GLOB ONNX_EXTRACTED_DIRS "${CMAKE_SOURCE_DIR}/libraries/onnxruntime-*")
+    list(GET ONNX_EXTRACTED_DIRS 0 ONNX_EXTRACTED_DIR)
+    if(NOT EXISTS "${ONNX_EXTRACTED_DIR}")
+        message(FATAL_ERROR "Could not find extracted ONNX Runtime directory.")
+    endif()
 
-    set(ONNXRUNTIME_ROOTDIR "${DEFAULT_ONNXRUNTIME_ROOT}")
+    # Rename it to stable name
+    file(RENAME "${ONNX_EXTRACTED_DIR}" "${ONNXRUNTIME_ROOTDIR}")
+
+    message(STATUS "ONNX Runtime ready at ${ONNXRUNTIME_ROOTDIR}")
 endif()
 
 # Set library path

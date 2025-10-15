@@ -36,6 +36,7 @@ BUILD_PYBIND = "ON"
 BUILD_BENCHMARK = "OFF"
 USE_ONNX = "ON"
 USE_TORCH = "OFF"
+APPLY_LIBTOK_PATCH = "ON"
 
 [tool.scikit-build]
 wheel.packages = ["mmm"]
