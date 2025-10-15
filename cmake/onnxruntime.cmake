@@ -69,12 +69,19 @@ if(NOT EXISTS "${ONNXRUNTIME_ROOTDIR}/include/onnxruntime_cxx_api.h")
     endif()
 
     # Extract into libraries/
-    message(STATUS "Extracting TAR archive...")
-    execute_process(
-        COMMAND ${CMAKE_COMMAND} -E tar xzf "${CMAKE_BINARY_DIR}/${ONNX_ARCHIVE}"
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/libraries"
-        RESULT_VARIABLE EXTRACT_RESULT
-    )
+    message(STATUS "Extracting TAR or ZIP archive...")
+    if(WIN32 AND ONNX_ARCHIVE MATCHES "\\.zip$")
+        execute_process(
+            COMMAND powershell -Command "Expand-Archive -Path '${CMAKE_BINARY_DIR}/${ONNX_ARCHIVE}' -DestinationPath '${CMAKE_SOURCE_DIR}/libraries'"
+            RESULT_VARIABLE EXTRACT_RESULT
+        )
+    else()
+        execute_process(
+            COMMAND ${CMAKE_COMMAND} -E tar xzf "${CMAKE_BINARY_DIR}/${ONNX_ARCHIVE}"
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/libraries"
+            RESULT_VARIABLE EXTRACT_RESULT
+        )
+    endif()
 
     if(NOT EXTRACT_RESULT EQUAL 0)
         message(FATAL_ERROR "Failed to extract ONNX Runtime archive.")

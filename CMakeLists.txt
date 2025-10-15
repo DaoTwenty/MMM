@@ -25,9 +25,7 @@ if (NOT BUILD_PYBIND AND NOT BUILD_BENCHMARK)
     message(FATAL_ERROR "At least one of BUILD_PYBIND or BUILD_BENCHMARK must be ON.")
 endif()
 
-if(UNIX AND NOT APPLE)
-    set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "Build all code with -fPIC" FORCE)
-endif()
+set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "Build all code with -fPIC" FORCE)
 
 # -------------------------------------------------------------------
 # External dependencies
@@ -76,6 +74,18 @@ elseif (USE_ONNX)
     list(APPEND COMMON_LIBS onnxruntime::onnxruntime)
 endif()
 
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+endif()
+
+if(WIN32 AND NOT CMAKE_GENERATOR)
+    set(CMAKE_GENERATOR "Ninja" CACHE INTERNAL "" FORCE)
+endif()
+
+if(WIN32)
+    set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
+endif()
+
 # -------------------------------------------------------------------
 # Benchmark executable
 # -------------------------------------------------------------------
@@ -110,8 +120,8 @@ if (BUILD_PYBIND)
         endif()
     endif()
 
-    # Apply RPATH if set
-    if(RPATH_LIB)
+    # Apply RPATH if applicable (non-Windows only)
+    if(RPATH_LIB AND NOT WIN32)
         set_target_properties(mmm PROPERTIES
             BUILD_RPATH "${RPATH_LIB}"
             INSTALL_RPATH "${RPATH_LIB}"
@@ -133,6 +143,10 @@ if (BUILD_PYBIND)
         DESTINATION mmm
         FILES_MATCHING PATTERN "*.py"
     )
+
+    if(WIN32)
+        install(FILES $<TARGET_PDB_FILE:mmm> DESTINATION "mmm" OPTIONAL)
+    endif()
 
     # Copy engine lib - ONLY shared libraries
     if(USE_ONNX)
