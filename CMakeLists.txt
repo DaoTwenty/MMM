@@ -25,6 +25,10 @@ if (NOT BUILD_PYBIND AND NOT BUILD_BENCHMARK)
     message(FATAL_ERROR "At least one of BUILD_PYBIND or BUILD_BENCHMARK must be ON.")
 endif()
 
+if(UNIX AND NOT APPLE)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "Build all code with -fPIC" FORCE)
+endif()
+
 # -------------------------------------------------------------------
 # External dependencies
 # -------------------------------------------------------------------

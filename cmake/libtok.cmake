@@ -36,7 +36,6 @@ if(NOT EXISTS "${LIBTOK_ROOTDIR}/CMakeLists.txt")
             message(WARNING "LibTok patch file not found: ${LIBTOK_PATCH_FILE}")
         endif()
     endif()
-
 endif()
 
 # Include dependencies if present
@@ -72,8 +71,15 @@ FetchContent_Declare(
 # Use manual population with EXCLUDE_FROM_ALL to prevent install rules
 FetchContent_GetProperties(LibTok)
 if(NOT libtok_POPULATED)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "Build all code with -fPIC" FORCE)
+
     FetchContent_Populate(LibTok)
     add_subdirectory(${libtok_SOURCE_DIR} ${libtok_BINARY_DIR} EXCLUDE_FROM_ALL)
+
+    # If the target exists, force PIC just in case
+    if(TARGET libtok)
+        set_target_properties(libtok PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    endif()
 endif()
 
 # Create an imported target for easier linking
