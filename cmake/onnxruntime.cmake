@@ -30,11 +30,11 @@ if(NOT DEFINED ONNX_VERSION)
         if(MACOS_COMBINED LESS 1100)
             message(FATAL_ERROR "Unsupported macOS version (< 11.0). Minimum supported macOS is 11 (Big Sur).")
         elseif(MACOS_COMBINED LESS 1200)
-            set(ONNX_VERSION "1.18.1")  # macOS 11.x
-        elseif(MACOS_COMBINED LESS 1300)
-            set(ONNX_VERSION "1.19.0")  # macOS 12.x
+            set(ONNX_VERSION "1.18.1")  # macOS < 12.0
+        elseif(MACOS_COMBINED LESS 1330)
+            set(ONNX_VERSION "1.19.0")  # macOS < 13.3
         else()
-            set(ONNX_VERSION "1.22.0")  # macOS 13+
+            set(ONNX_VERSION "1.22.0")  # macOS 13.3+
         endif()
     elseif(UNIX AND NOT APPLE)
         set(ONNX_VERSION "1.22.0") # Linux default

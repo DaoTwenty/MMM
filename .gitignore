@@ -10,6 +10,7 @@ __pycache__
 **/.DS_Store
 .vscode/
 **/*.mid
+!tests/resources/midis/*.mid
 build/
 external/
 libraries/
