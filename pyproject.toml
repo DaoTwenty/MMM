@@ -5,9 +5,9 @@ build-backend = "scikit_build_core.build"
 [project]
 name = "mmm"
 version = "0.0.1"
-description = "Multitrack Music Machine (native C++ core)."
+description = "Multitrack Music Machine"
 authors = [
-    { name = "Paul Triana", email="paul_triana@sfu.ca"}
+    { name = "Paul Triana", email = "paul_triana@sfu.ca" }
 ]
 readme = "pylib/README.md"
 license = { file = "LICENSE" }
@@ -37,6 +37,8 @@ BUILD_BENCHMARK = "OFF"
 USE_ONNX = "ON"
 USE_TORCH = "OFF"
 APPLY_LIBTOK_PATCH = "ON"
+BENCHMARK_ENABLE_TESTING = "OFF" 
+BENCHMARK_ENABLE_GTEST_TESTS = "OFF"
 
 [tool.scikit-build]
 wheel.packages = ["mmm"]
