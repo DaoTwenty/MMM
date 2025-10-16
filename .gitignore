@@ -16,3 +16,7 @@ external/
 libraries/
 wheelhouse/
 .pytest_cache
+**/*.sif
+**/*.zip
+**/*.sandbox
+build-temp-**
