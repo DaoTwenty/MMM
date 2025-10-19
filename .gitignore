@@ -14,7 +14,10 @@ __pycache__
 build/
 external/
 libraries/
-wheelhouse/
+wheelhouse/*
+!wheelhouse/scripts/
+!wheelhouse/scripts/*.ps1
+!wheelhouse/scripts/*.sh
 .pytest_cache
 **/*.sif
 **/*.zip

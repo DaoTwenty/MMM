@@ -8,7 +8,7 @@ from mmm import (
 RES = Path(__file__).parent / "resources"
 TOKENIZER = RES / "tokenizer.json"
 MODEL = RES.parent.parent / "models" / "model.onnx"
-TEST_MIDI = RES.parent.parent / "configs" / "score.mid"
+TEST_MIDI = RES / "midis" / "POP909_010.mid"
 
 def test_sampling_engine_basic():
     tok = Tokenizer(str(TOKENIZER))
