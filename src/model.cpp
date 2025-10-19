@@ -21,6 +21,7 @@ static Ort::SessionOptions make_options() {
     // ------------------------------------------------------------
     // macOS: Use CoreML provider if available
     // ------------------------------------------------------------
+    /*
     if (useCoreML) {
         try {
             std::unordered_map<std::string, std::string> provider_options;
@@ -33,7 +34,7 @@ static Ort::SessionOptions make_options() {
             // silently ignore if CoreML not available
         }
     }
-
+    */
 #elif defined(__linux__)
     // ------------------------------------------------------------
     // Linux: Default CPU execution provider (no special options)
