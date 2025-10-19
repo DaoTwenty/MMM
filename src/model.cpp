@@ -1,34 +1,57 @@
 #include "model.h"
+#include <numeric>   // for std::iota
+#include <cstring>   // for std::memcpy
+#include <unordered_map>
 
 namespace mmm {
 
 #if defined(USE_ONNX)
 // ============================================================================
-// ONNX Runtime backend
+// ONNX Runtime backend (Cross-platform)
 // ============================================================================
-static Ort::SessionOptions make_options(bool useCoreML) {
+
+static Ort::SessionOptions make_options() {
     Ort::SessionOptions opts;
     opts.SetInterOpNumThreads(1);
     opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_DISABLE_ALL);
     opts.DisableMemPattern();
     opts.SetExecutionMode(ExecutionMode::ORT_SEQUENTIAL);
 
+#if defined(__APPLE__)
+    // ------------------------------------------------------------
+    // macOS: Use CoreML provider if available
+    // ------------------------------------------------------------
     if (useCoreML) {
-        std::unordered_map<std::string, std::string> provider_options;
-        provider_options["ModelFormat"] = "MLProgram";
-        provider_options["MLComputeUnits"] = "ALL";
-        provider_options["RequireStaticInputShapes"] = "0";
-        provider_options["EnableOnSubgraphs"] = "0";
-        opts.AppendExecutionProvider("CoreML", provider_options);
+        try {
+            std::unordered_map<std::string, std::string> provider_options;
+            provider_options["ModelFormat"] = "MLProgram";
+            provider_options["MLComputeUnits"] = "ALL";
+            provider_options["RequireStaticInputShapes"] = "0";
+            provider_options["EnableOnSubgraphs"] = "0";
+            opts.AppendExecutionProvider("CoreML", provider_options);
+        } catch (...) {
+            // silently ignore if CoreML not available
+        }
     }
+
+#elif defined(__linux__)
+    // ------------------------------------------------------------
+    // Linux: Default CPU execution provider (no special options)
+    // ------------------------------------------------------------
+    // nothing special to do here
+#endif
 
     return opts;
 }
 
 CausalLM::CausalLM(const std::string& model_path, int vocab_size, bool coreML)
     : env(ORT_LOGGING_LEVEL_WARNING, "CausalLM"),
-      session_options(make_options(coreML)),
+      session_options(make_options()),
+#if defined(_WIN32)
+      session(env, std::wstring(model_path.begin(), model_path.end()).c_str(), session_options),
+#else 
       session(env, model_path.c_str(), session_options),
+#endif     
       memory_info(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)),
       vocab_size(vocab_size) {}
 
@@ -86,7 +109,7 @@ std::vector<float> CausalLMCached::forward(const std::vector<int64_t>& input_ids
         }
     }
 
-    // 3. Optional tensors
+    // 3. Inputs
     std::vector<const char*> input_names{"input_ids"};
     std::vector<Ort::Value> run_inputs;
     run_inputs.push_back(std::move(input_ids_tensor));
@@ -147,7 +170,6 @@ std::vector<float> CausalLMCached::forward(const std::vector<int64_t>& input_ids
 std::vector<float> CausalLM::forward(const std::vector<int64_t>& input_ids) {
     std::vector<int64_t> shape = {1, static_cast<int64_t>(input_ids.size())};
 
-    // Inputs
     Ort::Value ids = Ort::Value::CreateTensor<int64_t>(
         memory_info, const_cast<int64_t*>(input_ids.data()),
         input_ids.size(), shape.data(), shape.size());

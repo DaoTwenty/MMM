@@ -202,24 +202,44 @@ else()
 endif()
 
 # -------------------------------------------------------------------
-# Library path setup
+# Library path setup (correct Windows linkage)
 # -------------------------------------------------------------------
-set(ONNXRUNTIME_LIB "${ONNXRUNTIME_ROOTDIR}/lib/${ONNX_LIB_NAME}")
-if(NOT EXISTS "${ONNXRUNTIME_LIB}")
-    message(FATAL_ERROR "Missing ONNX Runtime library: ${ONNXRUNTIME_LIB}")
+if(WIN32)
+    set(ONNXRUNTIME_DLL "${ONNXRUNTIME_ROOTDIR}/lib/onnxruntime.dll")
+    set(ONNXRUNTIME_IMPLIB "${ONNXRUNTIME_ROOTDIR}/lib/onnxruntime.lib")
+    if(NOT EXISTS "${ONNXRUNTIME_IMPLIB}")
+        message(FATAL_ERROR "Missing ONNX Runtime import library: ${ONNXRUNTIME_IMPLIB}")
+    endif()
+    add_library(onnxruntime::onnxruntime SHARED IMPORTED)
+    set_target_properties(onnxruntime::onnxruntime PROPERTIES
+        IMPORTED_LOCATION "${ONNXRUNTIME_DLL}"
+        IMPORTED_IMPLIB "${ONNXRUNTIME_IMPLIB}"
+        INTERFACE_INCLUDE_DIRECTORIES "${ONNXRUNTIME_ROOTDIR}/include"
+    )
+else()
+    set(ONNXRUNTIME_LIB "${ONNXRUNTIME_ROOTDIR}/lib/${ONNX_LIB_NAME}")
+    if(NOT EXISTS "${ONNXRUNTIME_LIB}")
+        message(FATAL_ERROR "Missing ONNX Runtime library: ${ONNXRUNTIME_LIB}")
+    endif()
+    add_library(onnxruntime::onnxruntime SHARED IMPORTED)
+    set_target_properties(onnxruntime::onnxruntime PROPERTIES
+        IMPORTED_LOCATION "${ONNXRUNTIME_LIB}"
+        INTERFACE_INCLUDE_DIRECTORIES "${ONNXRUNTIME_ROOTDIR}/include"
+    )
 endif()
-
-# Create imported target
-add_library(onnxruntime::onnxruntime SHARED IMPORTED)
-set_target_properties(onnxruntime::onnxruntime PROPERTIES
-    IMPORTED_LOCATION "${ONNXRUNTIME_LIB}"
-    INTERFACE_INCLUDE_DIRECTORIES "${ONNXRUNTIME_ROOTDIR}/include"
-)
 
 # Expose variables to parent
 set(ONNXRUNTIME_INCLUDE_DIRS "${ONNXRUNTIME_ROOTDIR}/include" PARENT_SCOPE)
-set(ONNXRUNTIME_LIBRARIES "${ONNXRUNTIME_LIB}" PARENT_SCOPE)
+if(WIN32)
+    set(ONNXRUNTIME_LIBRARIES "${ONNXRUNTIME_IMPLIB}" PARENT_SCOPE)
+else()
+    set(ONNXRUNTIME_LIBRARIES "${ONNXRUNTIME_IMPLIB}" PARENT_SCOPE)
+endif()
 
 message(STATUS "ONNXRuntime root: ${ONNXRUNTIME_ROOTDIR}")
 message(STATUS "ONNXRuntime includes: ${ONNXRUNTIME_ROOTDIR}/include")
-message(STATUS "ONNXRuntime libs: ${ONNXRUNTIME_LIB}")
+if(WIN32)
+    message(STATUS "ONNXRuntime libs: ${ONNXRUNTIME_IMPLIB}")
+else()
+    message(STATUS "ONNXRuntime libs: ${ONNXRUNTIME_LIB}")
+endif()
