@@ -148,11 +148,18 @@ if (BUILD_PYBIND)
         install(FILES $<TARGET_PDB_FILE:mmm> DESTINATION "mmm" OPTIONAL)
     endif()
 
-    # Copy engine lib - ONLY shared libraries
+    # -------------------------------------------------------------------
+    # Copy engine shared libraries
+    # -------------------------------------------------------------------
     if(USE_ONNX)
-        # Only install shared libraries, not .a or .cmake files
+        if(WIN32)
+            set(ENGINE_DEST "mmm")  # Windows: same folder as mmm.pyd
+        else()
+            set(ENGINE_DEST "mmm/onnxruntime/lib")  # Linux/macOS
+        endif()
+
         install(DIRECTORY "${ONNXRUNTIME_ROOTDIR}/lib/"
-                DESTINATION "mmm/onnxruntime/lib"
+                DESTINATION "${ENGINE_DEST}"
                 FILES_MATCHING
                 PATTERN "*.so*"      # Linux shared libs
                 PATTERN "*.dylib"    # macOS shared libs
@@ -164,10 +171,16 @@ if (BUILD_PYBIND)
                 PATTERN "pkgconfig" EXCLUDE
                 PATTERN "*.pc" EXCLUDE
         )
+
     elseif(USE_TORCH)
-        # Only install shared libraries, not .a or .cmake files
+        if(WIN32)
+            set(ENGINE_DEST "mmm")  # Windows: same folder as mmm.pyd
+        else()
+            set(ENGINE_DEST "mmm/torch/lib")  # Linux/macOS
+        endif()
+
         install(DIRECTORY "${LIBTORCH_ROOTDIR}/lib/"
-                DESTINATION "mmm/torch/lib"
+                DESTINATION "${ENGINE_DEST}"
                 FILES_MATCHING
                 PATTERN "*.so*"      # Linux shared libs
                 PATTERN "*.dylib"    # macOS shared libs
