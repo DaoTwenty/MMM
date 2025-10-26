@@ -10,6 +10,7 @@
 #include "utils.h"
 #include "inference.h"
 #include "model.h"
+#include "logger.h"
 
 namespace py = pybind11;
 
@@ -68,18 +69,46 @@ py::object json_to_py(const nlohmann::json &j) {
     throw std::runtime_error("Unsupported JSON type");
 }
 
+class LoggerGlobal {
+public:
+    static mmm::utils::Logger& instance() {
+        static mmm::utils::Logger logger(mmm::utils::LogLevel::INFO);
+        return logger;
+    }
+
+    static void setLogLevel(mmm::utils::LogLevel level) {
+        instance().setMaxLevel(level);
+    }
+
+    static void setMedium(mmm::utils::LogLevel level, mmm::utils::LogMedium medium, const std::string& filename = "") {
+        instance().setMedium(level, medium, filename);
+    }
+};
+
 PYBIND11_MODULE(mmm, m) {
     m.doc() = "Python bindings for MMM inference";
 
-    m.def("generate", 
-        &mmm::inference::generate,
-        py::arg("model"),
-        py::arg("tokenizer"),
-        py::arg("prompt_config"),
-        py::arg("sampling_engine"),
-        py::arg("score"),
-        py::arg("verbose") = false,
-        "Run generation");
+    m.def("generate",
+    [](mmm::IModel* model,
+       LibTok::MMM &tokenizer,
+       mmm::inference::PromptConfig &prompt_config,
+       mmm::sampling::SamplingEngine &sampling_engine,
+       LibTok::ScoreType &score) {
+           return mmm::inference::generate(
+            model, 
+            tokenizer, 
+            prompt_config, 
+            sampling_engine, 
+            score, 
+            LoggerGlobal::instance()
+        );
+       },
+    py::arg("model"),
+    py::arg("tokenizer"),
+    py::arg("prompt_config"),
+    py::arg("sampling_engine"),
+    py::arg("score"),
+    "Run generation");
     
     // ----------------- GenerationConfig -----------------
     py::class_<mmm::sampling::GenerationConfig>(m, "GenerationConfig")
@@ -138,18 +167,17 @@ PYBIND11_MODULE(mmm, m) {
     .def(
         py::init([](const mmm::sampling::GenerationConfig &config,
                     LibTok::MMM &tokenizer,
-                    int seed,
-                    bool verbose) {
+                    int seed) {
             return mmm::inference::createEngine(
                 const_cast<mmm::sampling::GenerationConfig &>(config),
                 tokenizer,
-                seed,
-                verbose);
+                LoggerGlobal::instance(),
+                seed
+            );
         }),
         py::arg("config"),
         py::arg("tokenizer"),
         py::arg("seed") = -1,
-        py::arg("verbose") = false,
         "Construct a SamplingEngine from a GenerationConfig and tokenizer."
     )
 
@@ -531,5 +559,31 @@ PYBIND11_MODULE(mmm, m) {
         }
 #endif
         }), py::arg("cfg"), "Construct a model from ModelConfig");
+
+    // --- Expose LogLevel enum
+    py::enum_<mmm::utils::LogLevel>(m, "LogLevel")
+        .value("FATAL", mmm::utils::LogLevel::FATAL)
+        .value("ERROR", mmm::utils::LogLevel::ERROR)
+        .value("WARN",  mmm::utils::LogLevel::WARN)
+        .value("INFO",  mmm::utils::LogLevel::INFO)
+        .value("DEBUG", mmm::utils::LogLevel::DEBUG)
+        .value("TRACE", mmm::utils::LogLevel::TRACE)
+        .export_values();
+
+    // --- Expose LogMedium enum
+    py::enum_<mmm::utils::LogMedium>(m, "LogMedium")
+        .value("NONE", mmm::utils::LogMedium::NONE)
+        .value("CONSOLE", mmm::utils::LogMedium::CONSOLE)
+        .value("FILE", mmm::utils::LogMedium::FILE)
+        .value("BOTH", mmm::utils::LogMedium::BOTH)
+        .export_values();
+
+    // --- Expose static LoggerGlobal API
+    m.def("set_log_level", &LoggerGlobal::setLogLevel, py::arg("level"),
+          "Set global log level for the library");
+
+    m.def("set_log_medium", &LoggerGlobal::setMedium, 
+          py::arg("level"), py::arg("medium"), py::arg("filename") = "",
+          "Set the output medium (console, file, both) for a given log level");
 
 }

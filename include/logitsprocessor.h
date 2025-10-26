@@ -65,12 +65,6 @@ public:
 
     void process(std::vector<float>& logits,
                  const std::vector<int64_t>& current_tokens) override {
-        bool verbose_ = true;
-
-        if (verbose_) {
-            std::cout << "[RepetitionPenalty] logits size=" << logits.size() 
-                      << ", penalty=" << penalty_ << "\n";
-        }
 
         if (penalty_ == 1.0f) return; // no-op
 
@@ -81,9 +75,6 @@ public:
                     logits[token] *= penalty_;
                 else
                     logits[token] /= penalty_;
-
-                if (verbose_) std::cout << "  token " << token << ": " 
-                                       << old_val << " -> " << logits[token] << "\n";
             }
         }
     }
@@ -146,15 +137,12 @@ public:
           eos_token_id_(eos_token_id) {}
 
     void process(std::vector<float>& logits, const std::vector<int64_t>& current_tokens) override {
-        bool verbose_ = false;
 
         if (!isActive()) {
-            if (verbose_) std::cout << "[BarInfillStopLogitsProcessor] Not active, skipping\n";
             return;
         }
 
         if (current_tokens.empty()) {
-            if (verbose_) std::cout << "[BarInfillStopLogitsProcessor] No current tokens!\n";
             return;
         }
 
@@ -164,30 +152,19 @@ public:
         // Increment bars generated if last token is Bar_None
         int64_t last_token = current_tokens.back();
         if (last_token == infill_end_token_id_) {
-            if (verbose_) std::cout << "[BarInfillStopLogitsProcessor] Reached InfillBar_End, forcing EOS\n";
             std::fill(logits.begin(), logits.end(), -1e9f);
             logits[eos_token_id_] = 1e9f;
         }
         else if (last_token == bar_token_id_) {
             ++num_bars_generated_;
-            if (verbose_) std::cout << "[BarInfillStopLogitsProcessor] Last token is Bar_None, incremented num_bars_generated = " << num_bars_generated_ << "\n";
         }
 
         // If enough bars generated, allow FillBar_End, mask everything else
         if (num_bars_generated_ >= n_bars_to_infill_ ){
             logits[bar_token_id_] = 1e9f;
             logits[infill_end_token_id_] = 1e9f; // allow FillBar_End
-            if (verbose_) std::cout << "[BarInfillStopLogitsProcessor] Reached n_bars_to_infill, masking all except FillBar_End\n";
             return;
         }
-
-
-        // We cannot yet mask FillBar_End because bar counting fails due to BPE (we must check byte content).
-        // In this case we trust the model to respect logical structure
-        //logits[infill_end_token_id_] = -1e9f;
-        if (verbose_) std::cout << "[BarInfillStopLogitsProcessor] Not enough bars yet (outside BPE encoded bar tokens)\n";
-
-        if (verbose_) std::cout << "[BarInfillStopLogitsProcessor] EOS token " << eos_token_id_ << " masked (-1e9)\n";
     }
 
 protected:
@@ -225,33 +202,24 @@ public:
 
     void process(std::vector<float>& logits,
                  const std::vector<int64_t>& current_tokens) override {
-        bool verbose_ = false;
         if (!isActive() || current_tokens.empty()) {
-            if (verbose_) std::cout << "[TrackSampleStop] Not active or empty tokens, skipping\n";
             return;
         }
-
-        if (verbose_) std::cout << "[TrackSampleStop] logits size=" << logits.size() 
-                                << ", last token=" << current_tokens.back() << "\n";
 
         int64_t last_id = current_tokens.back();
 
         if (last_id == track_end_token_id_) {
             std::fill(logits.begin(), logits.end(), -1e9f);
             logits[eos_token_id_] = 1e9f;
-            if (verbose_) std::cout << "[TrackSampleStop] Last token was track_end, masked all, EOS=1e9\n";
             return;
         }
     
         logits[track_start_token_id_] = -1e9f;
-        if (verbose_) std::cout << "[TrackSampleStop] Track start token " << track_start_token_id_ << " masked (-1e9)\n";
 
         if (!finished_bars_ && last_id == bar_token_id_) {
             ++n_bars_generated_;
-            if (verbose_) std::cout << "[TrackSampleStop] BAR token detected, n_bars_generated_=" << n_bars_generated_ << "\n";
             if (n_bars_generated_ >= n_bars_to_generate_) {
                 finished_bars_ = true;
-                if (verbose_) std::cout << "[TrackSampleStop] Finished bars reached, finished_bars_=true\n";
             }
         }
 
@@ -259,7 +227,6 @@ public:
             // Removing because bar counting doesn't work due to BPE bar token encoding
             //logits[track_end_token_id_] = -1e9f;
             logits[eos_token_id_] = -1e9f;
-            if (verbose_) std::cout << "[TrackSampleStop] Not finished bars, masked and EOS\n";
         } else {
             logits[bar_token_id_] = -1e9f;
         }

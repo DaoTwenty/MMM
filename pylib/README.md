@@ -25,7 +25,13 @@ engine = SamplingEngine(gen_cfg, tokenizer)
 score_obj = Score("score_to_infill.mid")
 
 # Run generation
-generated_score = generate(model, tokenizer, prompt_cfg, engine, score_obj, verbose=True)
+generated_score = generate(
+    model, 
+    tokenizer, 
+    prompt_cfg, 
+    engine, 
+    score_obj
+)
 
 # Save output
 generated_score.save("infilled_score.mid")
@@ -33,13 +39,15 @@ generated_score.save("infilled_score.mid")
 
 ## Functions
 
+### Generation endpoint
+
 ```python
-score = generate(model, tokenizer, prompt_config, sampling_engine, score, verbose=False)
+score = generate(model, tokenizer, prompt_config, sampling_engine, score)
 ```
 
 Run a music generation using the provided model, tokenizer, prompt configuration, sampling engine, and optional score.
 
-### Parameters:
+#### Parameters:
 
 - `model (mmm.Model)` – The model to use for generation.
 
@@ -51,10 +59,40 @@ Run a music generation using the provided model, tokenizer, prompt configuration
 
 - `score (mmm.Score)` – Optional input score.
 
-- `verbose (bool)` – Print detailed logs (default `False`).
-
-### Returns:
+#### Returns:
 Generated `Score` object.
+
+### Setting logging level
+
+```python
+set_log_level(LogLevel.DEBUG)
+```
+
+Set the global log level (see `LogLevel` class).
+
+#### Parameters:
+
+- `log_level (mmm.LogLevel)`
+
+### Setting logging method
+
+```python
+set_log_medium(
+    LogLevel.DEBUG,
+    LogMedium.FILE,
+    "debug.out"
+)
+```
+
+Set the log method for each log level (see `LogMedium` class).
+
+#### Parameters:
+
+- `log_level (mmm.LogLevel)`
+
+- `log_medium (mmm.LogMeduim)`
+
+- `filename (string)`
 
 ## Classes
 
@@ -117,7 +155,7 @@ Wraps the sampling logic using a tokenizer and generation config.
 #### Constructor:
 
 ```python
-engine = mmm.SamplingEngine(config, tokenizer, seed=42, verbose=True)
+engine = mmm.SamplingEngine(config, tokenizer, seed=42)
 ```
 
 #### Properties:
@@ -275,3 +313,35 @@ model = mmm.Model(model_cfg)
 ```python
 model = mmm.Model(model_cfg)
 ```
+
+### LogLevel (ENUM)
+
+Global logging levels.
+
+#### Values
+
+- `FATAL`
+
+- `ERROR`
+
+- `WARN`
+
+- `INFO`
+
+- `DEBUG`
+
+- `TRACE`
+
+### LogMedium (ENUM)
+
+Logging method (per log level).
+
+#### Values
+
+- `NONE`
+
+- `CONSOLE`
+
+- `FILE`
+
+- `BOTH`

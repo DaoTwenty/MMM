@@ -31,27 +31,27 @@ void SamplingEngine::updateProcessors(const std::string& key, int value) {
 std::vector<int64_t> SamplingEngine::generate(
     const std::vector<int64_t>& input_ids,
     mmm::IModel* model,
-    bool verbose
+    mmm::utils::Logger& logger
 ) {
-
-    if (verbose) std::cout << "[Generate] Entered generate method.\n";
+    logger.log(mmm::utils::LogLevel::DEBUG, "[Generate] Entered generate method.");
 
     if (model->is_cached()) {
+        logger.log(mmm::utils::LogLevel::DEBUG, "[Generate] Resetting model cache.");
         model->reset_cache();
     }
-    std::vector<int64_t> current_input;
-    current_input = input_ids;
+
+    std::vector<int64_t> current_input = input_ids;
     std::optional<int64_t> next_token;
 
-    if (verbose) std::cout << "[Generate] Generating max_new_tokens=" << config_.max_new_tokens << "\n";
+    logger.log(mmm::utils::LogLevel::DEBUG,
+               "[Generate] Generating max_new_tokens=" + std::to_string(config_.max_new_tokens));
+
     bool stop_generating = false;
     int step = 0;
-    //for (int step = 0; step < config_.max_new_tokens; step++) {
-    while (!stop_generating) {
 
-        //if (verbose) std::cout << "[Generate] Step=" << step << "\n";
-        
+    while (!stop_generating) {
         if (profiler_) profiler_->start();
+
         std::vector<float> logits;
         if (model->is_cached() && next_token.has_value()) {
             logits = model->forward({*next_token});
@@ -65,30 +65,41 @@ std::vector<int64_t> SamplingEngine::generate(
         next_token = config_.do_sample
             ? sampler_.sample(logits)
             : sampler_.argmax(logits);
-        //if (verbose) std::cout << "[Generate] Sampled next token :: " << std::to_string(std::min(*next_token, static_cast<int64_t>(vocab_size_ - 1))) << "\n";
 
         if (*next_token >= vocab_size_) {
+            logger.log(mmm::utils::LogLevel::WARN,
+                       "[Generate] Sampled over vocab size (" + std::to_string(*next_token) + ")");
             *next_token = vocab_size_ - 1;
-            if (verbose) std::cerr << "[Generate] Sampled over vocab size (sampled " << *next_token << ")\n";
-            //throw std::runtime_error("[Generate] Sampled over vocab size (sampled " + std::to_string(*next_token) + ")");
         }
 
+        logger.log(mmm::utils::LogLevel::TRACE,
+                   "[Generate] Step " + std::to_string(step) +
+                   " sampled token=" + std::to_string(*next_token));
+
         if (next_token.has_value() && static_cast<int>(*next_token) == eos_token_id_) {
-            if (verbose) std::cout << "[Generate] Sampled EOS token, stopping generation.\n";
+            logger.log(mmm::utils::LogLevel::DEBUG, "[Generate] Sampled EOS token, stopping generation.");
             stop_generating = true;
         }
+
         current_input.push_back(*next_token);
 
         if (profiler_) profiler_->stop();
         step++;
+
         if (!stop_generating && step >= config_.max_new_tokens) {
-            if (verbose) std::cout << "[Generate] Generated max number of tokens (" << config_.max_new_tokens << " tokens), stopping generation.\n"; 
+            logger.log(mmm::utils::LogLevel::DEBUG,
+                       "[Generate] Generated max number of tokens (" +
+                       std::to_string(config_.max_new_tokens) + "), stopping generation.");
             stop_generating = true;
         }
     }
 
+    logger.log(mmm::utils::LogLevel::DEBUG,
+               "[Generate] Finished generation. Total tokens: " + std::to_string(current_input.size()));
+
     return current_input;
 }
+
 
 }
 

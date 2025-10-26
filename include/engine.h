@@ -8,6 +8,7 @@
 #include "model.h"
 #include "profiler.h"
 #include "generationconfig.h"
+#include "logger.h"
 
 namespace mmm {
 
@@ -26,7 +27,7 @@ public:
     std::vector<int64_t> generate(
         const std::vector<int64_t>& input_ids,
         mmm::IModel* model,
-        bool verbose = false
+        mmm::utils::Logger& logger
     );
 
     void updateProcessors(const std::string& key, int value);

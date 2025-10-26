@@ -20,6 +20,7 @@
 #include "generationconfig.h"
 #include "inference.h"
 #include "utils.h"
+#include "logger.h"
 
 // === LibTok ===
 #include "mmm.h"
@@ -142,8 +143,13 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    Logger logger = Logger(LogLevel::ERROR);
+    if (verbose) {
+        logger.setMaxLevel(LogLevel::DEBUG)
+    }
+
     // Sampling engine
-    mmm::sampling::SamplingEngine engine = mmm::inference::createEngine(gen_cfg, *tokenizer, -1, verbose);
+    mmm::sampling::SamplingEngine engine = mmm::inference::createEngine(gen_cfg, *tokenizer, logger, -1);
 
     // ================================================================
     // Load models
@@ -200,7 +206,7 @@ int main(int argc, char** argv) {
 
             try {
                 LibTok::ScoreType gen_score = mmm::inference::generate(
-                    model, *tokenizer, prompt_cfg, engine, score, verbose
+                    model, *tokenizer, prompt_cfg, engine, score, logger
                 );
                 m.times.push_back(engine.totalTimeProfiler());
 
