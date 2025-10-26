@@ -59,7 +59,7 @@ std::vector<int64_t> SamplingEngine::generate(
             logits = model->forward(current_input);
         }
 
-        processors_.process(logits, current_input);
+        processors_.process(logits, current_input, logger);
         warpers_.warp(logits);
 
         next_token = config_.do_sample

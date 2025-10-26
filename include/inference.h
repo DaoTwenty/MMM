@@ -6,6 +6,7 @@
 #include "mmm.h"
 #include "tok_sequence.h"
 #include "utils.h"
+#include "token_utils.h"
 #include "logger.h"
 
 namespace mmm {

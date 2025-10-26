@@ -2,6 +2,12 @@
 
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <algorithm>
+#include <unordered_set>
+#include <unordered_map>
+
+#include "mmm.h"
+#include "tok_sequence.h"
 
 #include "generationconfig.h"
 #include "promptconfig.h"
@@ -153,7 +159,12 @@ struct SpecialTokens {
     }
 };
 
-inline mmm::sampling::LogitsProcessorList createProcessorListFromConfig(const mmm::sampling::GenerationConfig& config, const SpecialTokens& tokens) { 
+inline mmm::sampling::LogitsProcessorList createProcessorListFromConfig(
+    const mmm::sampling::GenerationConfig& config, 
+    const SpecialTokens& tokens,
+    std::unordered_map<int, bool> contains_bar,
+    std::unordered_map<int, bool> contains_track_end
+) { 
     mmm::sampling::LogitsProcessorList processors; 
     // Repetition penalty 
     if (config.repetition_penalty != 1.0f) { 
@@ -161,11 +172,11 @@ inline mmm::sampling::LogitsProcessorList createProcessorListFromConfig(const mm
     } 
 
     // Include Generation Mode processors  
-    auto bar_infill_stop = std::make_shared<mmm::sampling::BarInfillStopLogitsProcessor>( tokens.fillbar_start, tokens.fillbar_end, tokens.bar_none, tokens.eos_none); 
+    auto bar_infill_stop = std::make_shared<mmm::sampling::BarInfillStopLogitsProcessor>( tokens.fillbar_start, tokens.fillbar_end, tokens.bar_none, tokens.eos_none, contains_bar); 
     bar_infill_stop->updateConfig("BarInfillStopLogitsProcessor.active", 0);
     processors.addProcessor(bar_infill_stop); 
 
-    auto track_sample_stop = std::make_shared<mmm::sampling::TrackSampleStopLogitsProcessor>( tokens.bar_none, tokens.track_start, tokens.track_end, tokens.eos_none); 
+    auto track_sample_stop = std::make_shared<mmm::sampling::TrackSampleStopLogitsProcessor>( tokens.bar_none, tokens.track_start, tokens.track_end, tokens.eos_none, contains_bar, contains_track_end); 
     track_sample_stop->updateConfig("TrackSampleStopLogitsProcessor.active", 0);
     processors.addProcessor(track_sample_stop);
     return processors;

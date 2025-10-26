@@ -60,6 +60,7 @@ set(COMMON_SOURCES
     src/model.cpp
     src/sampler.cpp
     src/engine.cpp
+    src/token_utils.cpp
     src/inference/inference.cpp
     src/inference/bar_infill.cpp
     src/inference/track_sample.cpp

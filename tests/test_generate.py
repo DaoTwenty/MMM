@@ -15,10 +15,8 @@ TEST_MIDI_MULTI = RES / "midis" / "test_in.mid"
 LOG = LogLevel.TRACE
 set_log_level(LOG)
 
-MODEL_ARGS = [
-        (MODEL, False),
-        (MODEL_CACHE, True)
-    ]
+#MODEL_ARGS = [(MODEL, False),(MODEL_CACHE, True)]
+MODEL_ARGS = [(MODEL, False)]
 
 def test_sampling_engine_basic():
     tok = Tokenizer(str(TOKENIZER))

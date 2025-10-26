@@ -15,6 +15,9 @@ int64_t Sampler::sample(const std::vector<float>& logits) {
 
     // Convert to probabilities (softmax)
     float max_logit = *std::max_element(logits.begin(), logits.end());
+    if (max_logit < -1e9f) {
+        throw std::runtime_error("[Sampler] All logits masked out!");
+    }
 
     std::vector<float> probs(logits.size());
     float sum = 0.0f;
@@ -27,7 +30,6 @@ int64_t Sampler::sample(const std::vector<float>& logits) {
         }
         sum += probs[i];
     }
-
 
     if (sum == 0.0f || !std::isfinite(sum)) {
         throw std::runtime_error("[Sampler] Invalid softmax sum (zero or non-finite)");

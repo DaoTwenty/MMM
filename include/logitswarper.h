@@ -63,7 +63,7 @@ public:
         // Find kth largest logit (partial sort)
         std::vector<float> temp = logits;
         std::nth_element(temp.begin(), temp.begin() + k_, temp.end(), std::greater<float>());
-        float kth_value = temp[k_];
+        float kth_value = temp[k_ - 1];
 
         for (auto& logit : logits) {
             if (logit < kth_value) logit = -1e10f;
@@ -105,8 +105,10 @@ public:
         float cumulative = 0.0f;
         for (size_t i = 0; i < idx.size(); ++i) {
             cumulative += probs[idx[i]];
-            if (cumulative > p_) {
-                logits[idx[i]] = -1e10f;
+            if (cumulative >= p_) {
+                for (size_t j = i + 1; j < idx.size(); ++j)
+                    logits[idx[j]] = -1e10f;
+                break;
             }
         }
     }

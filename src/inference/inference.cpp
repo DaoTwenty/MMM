@@ -32,9 +32,22 @@ mmm::sampling::SamplingEngine createEngine(
     logger.log(mmm::utils::LogLevel::INFO, "[Engine] Vocab loaded. Size=" + std::to_string(vocab.size()));
 
     mmm::utils::SpecialTokens special_tokens(vocab);
+
+    std::unordered_map<int, bool> contains_bar;
+    std::unordered_map<int, bool> contains_track_end;
+
+    mmm::utils::buildContainMaps(
+        tokenizer,
+        vocab.size(),
+        special_tokens,
+        logger,
+        contains_bar,
+        contains_track_end
+    );
+
     
     mmm::sampling::LogitsProcessorList processors = 
-        mmm::utils::createProcessorListFromConfig(config, special_tokens); 
+        mmm::utils::createProcessorListFromConfig(config, special_tokens, contains_bar, contains_track_end); 
 
     logger.log(mmm::utils::LogLevel::DEBUG, "[Engine] Processors created");
     
@@ -49,7 +62,7 @@ mmm::sampling::SamplingEngine createEngine(
 
     mmm::sampling::SamplingEngine engine(
         config, 
-        vocab["EOS_None"], 
+        special_tokens.eos_none, 
         tokenizer.getVocabSize(), 
         processors, 
         warpers, 

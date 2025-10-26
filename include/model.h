@@ -58,15 +58,19 @@ public:
     bool is_cached() override { return true; }
 
 private:
-    std::vector<const char*> main_input_names;
-    std::vector<const char*> past_input_names;
-    std::vector<const char*> past_output_names;
-    const char* logits_output_name = nullptr;
+    std::vector<std::string> main_input_names;
+    std::vector<std::string> past_input_names;
+    std::vector<std::string> past_output_names;
+    std::string logits_output_name;
+
     std::vector<Ort::Value> past_key_values;
 
     bool has_input(const std::string& name) const {
-        return std::any_of(main_input_names.begin(), main_input_names.end(),
-                           [&](const char* n) { return name == n; });
+        return std::any_of(
+            main_input_names.begin(),
+            main_input_names.end(),
+            [&](const std::string& n) { return name == n; }
+        );
     }
 };
 #endif // USE_ONNX

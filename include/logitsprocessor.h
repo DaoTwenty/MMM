@@ -5,8 +5,10 @@
 #include <cstddef>
 #include <cmath>
 #include <algorithm>
+#include <string> 
 
 #include "generationconfig.h"
+#include "logger.h"
 
 namespace mmm {
 
@@ -21,7 +23,9 @@ public:
 
     // Process logits in-place, can use current generated sequence if needed
     virtual void process(std::vector<float>& logits,
-                         const std::vector<int64_t>& current_tokens) = 0;
+                        const std::vector<int64_t>& current_tokens,
+                        mmm::utils::Logger& logger
+                    ) = 0;
 
     virtual const char* name() const = 0;
 
@@ -38,9 +42,11 @@ public:
     }
 
     void process(std::vector<float>& logits,
-                 const std::vector<int64_t>& current_tokens) const {
+                const std::vector<int64_t>& current_tokens,
+                mmm::utils::Logger& logger
+            ) const {
         for (const auto& processor : processors_) {
-            processor->process(logits, current_tokens);
+            processor->process(logits, current_tokens, logger);
         }
     }
 
@@ -64,7 +70,8 @@ public:
     const char* name() const override { return "RepetitionPenaltyLogitsProcessor"; }
 
     void process(std::vector<float>& logits,
-                 const std::vector<int64_t>& current_tokens) override {
+                 const std::vector<int64_t>& current_tokens,
+                mmm::utils::Logger& logger) override {
 
         if (penalty_ == 1.0f) return; // no-op
 
@@ -124,45 +131,67 @@ private:
     std::string name_;
 };
 
-
 // ----------------------------------------
 // Bar Infill Stop Processor : Stop generation when enough content is generated.
 class BarInfillStopLogitsProcessor : public BaseStopLogitsProcessor {
 public:
-    BarInfillStopLogitsProcessor(int infill_start_token_id, int infill_end_token_id, int bar_token_id, int eos_token_id)
+    BarInfillStopLogitsProcessor(
+        int infill_start_token_id,
+        int infill_end_token_id,
+        int bar_token_id,
+        int eos_token_id,
+        const std::unordered_map<int, bool>& contains_bar)
         : BaseStopLogitsProcessor("BarInfillStopLogitsProcessor"),
           infill_start_token_id_(infill_start_token_id),
           infill_end_token_id_(infill_end_token_id),
           bar_token_id_(bar_token_id),
-          eos_token_id_(eos_token_id) {}
-
-    void process(std::vector<float>& logits, const std::vector<int64_t>& current_tokens) override {
-
-        if (!isActive()) {
-            return;
+          eos_token_id_(eos_token_id),
+          contains_bar_(contains_bar)
+    {
+        // Precompute mask list (for faster iteration later)
+        for (const auto& [token_id, has_bar] : contains_bar_) {
+            if (has_bar) {
+                tokens_containing_bar_.push_back(token_id);
+            }
         }
+    }
 
-        if (current_tokens.empty()) {
-            return;
-        }
+    void process(std::vector<float>& logits, const std::vector<int64_t>& current_tokens, mmm::utils::Logger& logger) override {
+        if (!isActive() || current_tokens.empty()) return;
 
         // Mask EOS by default
-        logits[eos_token_id_] = -1e9f;
+        logits[eos_token_id_] = -1e10f;
 
-        // Increment bars generated if last token is Bar_None
         int64_t last_token = current_tokens.back();
+        logger.log(mmm::utils::LogLevel::TRACE, "[BarInfillStopLogitsProcessor] last_token=" + std::to_string(last_token)); 
+
+        // If the fill has ended, force EOS
         if (last_token == infill_end_token_id_) {
-            std::fill(logits.begin(), logits.end(), -1e9f);
-            logits[eos_token_id_] = 1e9f;
+            logger.log(mmm::utils::LogLevel::TRACE, "[BarInfillStopLogitsProcessor] Last token is INFILL_END");
+            std::fill(logits.begin(), logits.end(), -1e10f);
+            logits[eos_token_id_] = 1e10f;
+            return;
         }
-        else if (last_token == bar_token_id_) {
+        // Count bars
+        else if (last_token == bar_token_id_ || contains_bar_[last_token]) {
+            logger.log(mmm::utils::LogLevel::TRACE, "[BarInfillStopLogitsProcessor] Last token contains BAR_NONE");
             ++num_bars_generated_;
         }
 
-        // If enough bars generated, allow FillBar_End, mask everything else
-        if (num_bars_generated_ >= n_bars_to_infill_ ){
-            logits[bar_token_id_] = 1e9f;
-            logits[infill_end_token_id_] = 1e9f; // allow FillBar_End
+        // If enough bars generated, stop allowing more bar tokens
+        if (num_bars_generated_ >= n_bars_to_infill_) {
+            logger.log(mmm::utils::LogLevel::TRACE, "[BarInfillStopLogitsProcessor] Enough bars generated");
+
+            // Mask all tokens containing "bar"
+            for (int token_id : tokens_containing_bar_) {
+                logits[token_id] = -1e10f;
+            }
+
+            // Also mask the main bar token
+            logits[bar_token_id_] = -1e10f;
+
+            // Allow FillBar_End
+            //logits[infill_end_token_id_] = 1e10f;
             return;
         }
     }
@@ -182,41 +211,49 @@ private:
     int infill_end_token_id_;
     int bar_token_id_;
     int eos_token_id_;
+    std::unordered_map<int, bool> contains_bar_;
+
+    // Precomputed mask list
+    std::vector<int> tokens_containing_bar_;
 
     int n_bars_to_infill_ = 0;
     int num_bars_generated_ = 0;
     bool bar_start_found_ = false;
 };
 
+
 // ----------------------------------------
 // Track Sample Stop Processor : Stop generation when enough content is generated.
 // ----------------------------------------
 class TrackSampleStopLogitsProcessor : public BaseStopLogitsProcessor {
 public:
-    TrackSampleStopLogitsProcessor(int bar_token_id, int track_start_token_id, int track_end_token_id, int eos_token_id)
+    TrackSampleStopLogitsProcessor(int bar_token_id, int track_start_token_id, int track_end_token_id, int eos_token_id, std::unordered_map<int, bool> contains_bar, std::unordered_map<int, bool> contains_track_end)
         : BaseStopLogitsProcessor("TrackSampleStopLogitsProcessor"),
           bar_token_id_(bar_token_id),
           track_end_token_id_(track_end_token_id),
           track_start_token_id_(track_start_token_id),
-          eos_token_id_(eos_token_id) {}
+          eos_token_id_(eos_token_id), 
+          contains_track_end_(contains_track_end),
+          contains_bar_(contains_bar) {}
 
     void process(std::vector<float>& logits,
-                 const std::vector<int64_t>& current_tokens) override {
+                 const std::vector<int64_t>& current_tokens,
+                mmm::utils::Logger& logger) override {
         if (!isActive() || current_tokens.empty()) {
             return;
         }
 
         int64_t last_id = current_tokens.back();
 
-        if (last_id == track_end_token_id_) {
-            std::fill(logits.begin(), logits.end(), -1e9f);
-            logits[eos_token_id_] = 1e9f;
+        if (last_id == track_end_token_id_ || contains_track_end_[last_id]) {
+            std::fill(logits.begin(), logits.end(), -1e10f);
+            logits[eos_token_id_] = 1e10f;
             return;
         }
     
-        logits[track_start_token_id_] = -1e9f;
+        logits[track_start_token_id_] = -1e10f;
 
-        if (!finished_bars_ && last_id == bar_token_id_) {
+        if (!finished_bars_ && (last_id == bar_token_id_ || contains_bar_[last_id])) {
             ++n_bars_generated_;
             if (n_bars_generated_ >= n_bars_to_generate_) {
                 finished_bars_ = true;
@@ -225,10 +262,10 @@ public:
 
         if (!finished_bars_) {
             // Removing because bar counting doesn't work due to BPE bar token encoding
-            //logits[track_end_token_id_] = -1e9f;
-            logits[eos_token_id_] = -1e9f;
+            //logits[track_end_token_id_] = -1e10f;
+            logits[eos_token_id_] = -1e10f;
         } else {
-            logits[bar_token_id_] = -1e9f;
+            logits[bar_token_id_] = -1e10f;
         }
     }
 
@@ -247,6 +284,8 @@ private:
     int track_start_token_id_;
     int track_end_token_id_;
     int eos_token_id_;
+    std::unordered_map<int, bool> contains_bar_;
+    std::unordered_map<int, bool> contains_track_end_;
 
     int n_bars_to_generate_ = 0;
     int n_bars_generated_ = 0;
