@@ -9,7 +9,7 @@ namespace inference {
 void sample_tracks(
     std::vector<LibTok::TokSequence> &token_seq,
     LibTok::MMM &tokenizer,           
-    mmm::inference::TrackSampling &sample_config,
+    const mmm::inference::TrackSampling& sample_config,
     mmm::IModel* model,
     mmm::sampling::SamplingEngine &engine,
     int context_length,
@@ -107,7 +107,7 @@ void sample_tracks(
 int _adapt_prompt_for_sampling(
     LibTok::MMM &tokenizer,
     int program,
-    Controls &controls,
+    const Controls &controls,
     std::vector<LibTok::TokSequence> &token_seq,
     LibTok::TokSequence &input_tokens,
     int context_length,

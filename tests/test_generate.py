@@ -8,13 +8,20 @@ from mmm import (
 RES = Path(__file__).parent / "resources"
 TOKENIZER = RES / "tokenizer.json"
 MODEL = RES.parent.parent / "models" / "model.onnx"
+MODEL_CACHE = RES.parent.parent / "models" / "model_cache.onnx"
 TEST_MIDI_SINGLE = RES / "midis" / "POP909_010.mid"
 TEST_MIDI_MULTI = RES / "midis" / "test_in.mid"
+VERBOSE = False
+
+MODEL_ARGS = [
+        (MODEL, False),
+        (MODEL_CACHE, True)
+    ]
 
 def test_sampling_engine_basic():
     tok = Tokenizer(str(TOKENIZER))
     cfg = GenerationConfig(max_new_tokens=10)
-    engine = SamplingEngine(cfg, tok, seed=123, verbose=True)
+    engine = SamplingEngine(cfg, tok, seed=123, verbose=VERBOSE)
 
     assert engine.config.max_new_tokens == 10
     assert isinstance(engine.vocab_size, int)
@@ -23,19 +30,23 @@ def test_sampling_engine_basic():
     engine.seed = -1  # should randomize
     assert isinstance(engine.seed, int)
 
-def test_generate_infill_multitrack(tmp_path):
+@pytest.mark.parametrize(
+    "model_path,cached",
+    MODEL_ARGS
+)
+def test_generate_infill_multitrack(tmp_path, model_path, cached):
     # create minimal fake components
-    model_cfg = ModelConfig(model=str(MODEL), vocab_size=16000)
+    model_cfg = ModelConfig(model=str(model_path), vocab_size=16000, cached=cached)
     model = Model(model_cfg)
     tokenizer = Tokenizer(str(TOKENIZER))
     bars = {"bars": {0: [(2, 3, [])]}}
     prompt_cfg = PromptConfig(bars, context_length=4)
     gen_cfg = GenerationConfig(max_new_tokens=128)
-    engine = SamplingEngine(gen_cfg, tokenizer, seed=-1, verbose=False)
+    engine = SamplingEngine(gen_cfg, tokenizer, seed=-1, verbose=VERBOSE)
     score_in = Score(str(TEST_MIDI_SINGLE))
 
     # run generation
-    result = generate(model, tokenizer, prompt_cfg, engine, score_in, verbose=True)
+    result = generate(model, tokenizer, prompt_cfg, engine, score_in, verbose=VERBOSE)
     assert isinstance(result, Score)
 
     # saving should succeed
@@ -43,19 +54,26 @@ def test_generate_infill_multitrack(tmp_path):
     result.save(str(out_path))
     assert out_path.exists()
 
-def test_generate_infill_multitrack(tmp_path):
+@pytest.mark.parametrize(
+    "model_path,cached",
+    MODEL_ARGS
+)
+def test_generate_infill_multitrack(tmp_path, model_path, cached):
     # create minimal fake components
-    model_cfg = ModelConfig(model=str(MODEL), vocab_size=16000)
+    model_cfg = ModelConfig(model=str(model_path), vocab_size=16000, cached=cached)
     model = Model(model_cfg)
     tokenizer = Tokenizer(str(TOKENIZER))
-    bars = {"bars": {0: [(2, 3, [])]}}
+    bars = {"bars": {
+        0: [(2, 3, [])],
+        1: [(2, 3, [])]
+    }}
     prompt_cfg = PromptConfig(bars, context_length=4)
-    gen_cfg = GenerationConfig(max_new_tokens=128)
-    engine = SamplingEngine(gen_cfg, tokenizer, seed=-1, verbose=False)
+    gen_cfg = GenerationConfig(max_new_tokens=256)
+    engine = SamplingEngine(gen_cfg, tokenizer, seed=-1, verbose=VERBOSE)
     score_in = Score(str(TEST_MIDI_MULTI))
 
     # run generation
-    result = generate(model, tokenizer, prompt_cfg, engine, score_in, verbose=True)
+    result = generate(model, tokenizer, prompt_cfg, engine, score_in, verbose=VERBOSE)
     assert isinstance(result, Score)
 
     # saving should succeed
@@ -63,18 +81,22 @@ def test_generate_infill_multitrack(tmp_path):
     result.save(str(out_path))
     assert out_path.exists()
 
-def test_generate_sample(tmp_path):
+@pytest.mark.parametrize(
+    "model_path,cached",
+    MODEL_ARGS
+)
+def test_generate_sample(tmp_path, model_path, cached):
     # create minimal fake components
-    model_cfg = ModelConfig(model=str(MODEL), vocab_size=16000)
+    model_cfg = ModelConfig(model=str(model_path), vocab_size=16000, cached=cached)
     model = Model(model_cfg)
     tokenizer = Tokenizer(str(TOKENIZER))
     gen_cfg = GenerationConfig(max_new_tokens=128)
-    engine = SamplingEngine(gen_cfg, tokenizer, seed=-1, verbose=False)
+    engine = SamplingEngine(gen_cfg, tokenizer, seed=-1, verbose=VERBOSE)
     score_in = Score(str(TEST_MIDI_MULTI))
 
-    tracks = { "tracks" : [(18, [])]}
+    tracks = { "tracks" : [(18, []), (17, [])]}
     prompt_cfg = PromptConfig(tracks, context_length=4)
-    result = generate(model, tokenizer, prompt_cfg, engine, score_in, verbose=True)
+    result = generate(model, tokenizer, prompt_cfg, engine, score_in, verbose=VERBOSE)
 
     # saving should succeed
     out_path = tmp_path / "output_sample.mid"

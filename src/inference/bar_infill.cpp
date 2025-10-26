@@ -9,7 +9,7 @@ namespace inference {
 void infill_bars(
     std::vector<LibTok::TokSequence> &token_seq,
     LibTok::MMM &tokenizer,
-    mmm::inference::BarInfilling &infill_config,
+    const mmm::inference::BarInfilling& infill_config,
     mmm::IModel* model,
     mmm::sampling::SamplingEngine &engine,
     int context_length,
@@ -129,7 +129,7 @@ void infill_bars(
 std::pair<int,int> _adapt_prompt_for_infilling(
     LibTok::MMM &tokenizer,
     int track_idx, 
-    BarSubset &subset,
+    const BarSubset &subset,
     std::vector<LibTok::TokSequence> &token_seq,
     LibTok::TokSequence &input_tokens,
     int context_length,
@@ -165,7 +165,7 @@ std::pair<int,int> _adapt_prompt_for_infilling(
     }
 
     int context_start_idx = std::max(0, start_bar_idx - context_length);
-    int context_end_idx = std::min(start_bar_idx + context_length, num_bars );
+    int context_end_idx = std::min(end_bar_idx + context_length, num_bars );
     if (verbose) { 
         std::cout << "[AdaptPromptForBarInfill] Context range: " 
         << context_start_idx << " -> " << context_end_idx << "\n"; 
@@ -197,6 +197,7 @@ std::pair<int,int> _adapt_prompt_for_infilling(
         if (verbose) { std::cout << "[AdaptPromptForBarInfill] Not encoding infilling sequence, no BPE" << "\n";}
     }
 
+    if (verbose) { std::cout << "[AdaptPromptForBarInfill] Iterating tracks.\n";}
     for (int i = 0; i < token_seq.size(); i++) {
         if (i == track_idx) {
             input_tokens += seq_to_infill;

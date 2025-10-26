@@ -99,7 +99,33 @@ struct PromptConfig {
     bool bar_infilling() const { return std::holds_alternative<BarInfilling>(mode); }
     bool track_sampling() const { return std::holds_alternative<TrackSampling>(mode); }
 
-    void print() const { std::cout << *this; } // delegate to operator<<
+    void print() const { std::cout << *this; }
+
+    // ----------------- NEW: Generate passes -----------------
+    std::vector<PromptConfig> getPasses() const {
+        std::vector<PromptConfig> passes;
+
+        if (bar_infilling()) {
+            const auto& barCfg = std::get<BarInfilling>(mode);
+            for (const auto& [track_idx, subsets] : barCfg.bars) {
+                for (const auto& subset : subsets) {
+                    BarInfilling singleBarCfg;
+                    singleBarCfg.bars[track_idx] = { subset };
+                    passes.push_back(PromptConfig{singleBarCfg, context_length});
+                }
+            }
+        } 
+        else if (track_sampling()) {
+            const auto& trackCfg = std::get<TrackSampling>(mode);
+            for (const auto& trackSubset : trackCfg.tracks) {
+                TrackSampling singleTrackCfg;
+                singleTrackCfg.tracks.push_back(trackSubset);
+                passes.push_back(PromptConfig{singleTrackCfg, context_length});
+            }
+        }
+
+        return passes;
+    }
 };
 
 inline std::ostream& operator<<(std::ostream& os, const PromptConfig& cfg) {

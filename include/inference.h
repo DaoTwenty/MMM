@@ -35,7 +35,7 @@ void _preprocess_token_sequence_vector(
 void sample_tracks(
     std::vector<LibTok::TokSequence> &token_seq,
     LibTok::MMM &tokenizer,           
-    mmm::inference::TrackSampling &sample_config,
+    const mmm::inference::TrackSampling &sample_config,
     mmm::IModel* model,
     mmm::sampling::SamplingEngine &engine,
     int context_length,
@@ -45,7 +45,7 @@ void sample_tracks(
 void infill_bars(
     std::vector<LibTok::TokSequence> &token_seq,
     LibTok::MMM &tokenizer,                               
-    mmm::inference::BarInfilling &infill_config,
+    const mmm::inference::BarInfilling &infill_config,
     mmm::IModel* model,
     mmm::sampling::SamplingEngine &engine,
     int context_length,
@@ -55,7 +55,7 @@ void infill_bars(
 std::pair<int, int> _adapt_prompt_for_infilling(
     LibTok::MMM &tokenizer,
     int track_idx, 
-    BarSubset &subset,
+    const BarSubset &subset,
     std::vector<LibTok::TokSequence> &token_seq,
     LibTok::TokSequence &input_tokens,
     int context_length,
@@ -72,7 +72,7 @@ std::vector<std::string> extractInfilledContent(
 int _adapt_prompt_for_sampling(
     LibTok::MMM &tokenizer,
     int program,
-    Controls &controls,
+    const Controls &controls,
     std::vector<LibTok::TokSequence> &token_seq,
     LibTok::TokSequence &input_tokens,
     int context_length,
