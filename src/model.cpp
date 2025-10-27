@@ -116,10 +116,6 @@ std::vector<float> CausalLMCached::forward(const std::vector<int64_t>& input_ids
     std::vector<const char*> input_name_ptrs;
     std::vector<Ort::Value> run_inputs;
 
-    // Always push input_ids first (name must match what the model expects)
-    std::vector<const char*> input_name_ptrs;
-    std::vector<Ort::Value> run_inputs;
-
     // Always include "input_ids"
     input_name_ptrs.push_back("input_ids");
     run_inputs.push_back(std::move(input_ids_tensor));
